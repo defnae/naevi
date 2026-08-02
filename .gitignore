@@ -1,0 +1,10 @@
+build
+compile_commands.json
+
+.cache
+.Trash
+
+.DS_Store
+
+thumbs.db
+desktop.ini
