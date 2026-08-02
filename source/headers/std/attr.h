@@ -4,13 +4,13 @@
 #define ATTR_H
 
 #ifndef __clang__
-#error "Toolchain mismatch: Clang required."
+#error "Unsupported Compiler. Use Clang."
 #endif
 
 #define MSABI __attribute__((ms_abi))
 #define SYSVABI __attribute__((sysv_abi))
 
-#define INLINE __attribute__((always_inline)) inline
+#define INLINE __attribute__((always_inline)) __inline__
 #define NORETURN __attribute__((noreturn))
 
 #define PACKED __attribute__((packed))

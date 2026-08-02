@@ -4,7 +4,7 @@
 #define INT_H
 
 #ifndef __clang__
-#error "Toolchain mismatch: Clang required."
+#error "Unsupported Compiler. Use Clang."
 #endif
 
 typedef __INT8_TYPE__ int8_t;

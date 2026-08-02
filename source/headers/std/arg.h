@@ -1,16 +1,14 @@
-// headers/std/arg.h
-
 #ifndef ARG_H
 #define ARG_H
 
 #ifndef __clang__
-#error "Toolchain mismatch: Clang required."
+#error "Unsupported Compiler. Use Clang."
 #endif
 
-#define va_list __builtin_va_list
-#define va_start __builtin_va_start
-#define va_arg __builtin_va_arg
-#define va_end __builtin_va_end
-#define va_copy __builtin_va_copy
+typedef __builtin_va_list va_list;
+
+#define va_start(x, y) __builtin_va_start(x, y)
+#define va_arg(x, y) __builtin_va_arg(x, y)
+#define va_end(x) __builtin_va_end(x)
 
 #endif

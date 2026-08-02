@@ -4,18 +4,19 @@
 #define CHAR_H
 
 #ifndef __clang__
-#error "Unsupported Compiler: Clang required."
+#error "Unsupported Compiler. Use Clang."
 #endif
 
 #ifndef __CHAR_UNSIGNED__
-#error "Signedness Mismatch: 'char' must be signed. Use '-funsigned-char.'"
+#error "Signedness Mismatch: `char` must be unsigned. Use `-funsigned-char.`"
 #endif
 
 #if __CHAR_BIT__ != 8
-#error "Unsupported Architecture: 'char' isn't quite 8 bits."
+#error "Width Mismatch: `char` isn't 8 bits."
 #endif
 
 typedef char char8_t;
+
 typedef __INT8_TYPE__ schar8_t;
 
 typedef __UINT16_TYPE__ char16_t;
