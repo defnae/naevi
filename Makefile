@@ -19,7 +19,7 @@ DIM := \033[2m
 
 RESET := \033[0m
 
-CFLAGS := -I$(SOURCE) -std=c89 -fno-signed-char -funsigned-char -fno-signed-zeros -Weverything -Wno-c++-keyword -Wno-c23-compat -Wno-comment -Wno-unsafe-buffer-usage -Wno-long-long -Wpadded -Werror -fno-fast-math -funroll-loops -fomit-frame-pointer -flto -O3
+CFLAGS := -I$(SOURCE) -std=c89 -funsigned-char -Weverything -Wno-c++-keyword -Wno-c23-compat -Wno-comment -Wno-unsafe-buffer-usage -Wno-long-long -Werror -O3
 LFLAGS :=
 
 .PHONY: all clean build run compile_commands.json
