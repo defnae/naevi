@@ -14,6 +14,16 @@
 #define ABI SYSVABI
 #endif
 
+#if defined(__linux__)
+#define NAEVI_LINUX 1
+#elif defined(__APPLE__)
+#define NAEVI_DARWIN 1
+#elif defined(__CYGWIN__) || defined(__MSYS__)
+#define NAEVI_MSYS 1
+#else
+#error "Unsupported platform: only Linux, macOS, and MSYS2 are supported."
+#endif
+
 typedef ptrdiff_t ssize_t;
 typedef long long off_t;
 
@@ -30,7 +40,6 @@ typedef struct winsize winsize;
 
 extern void* malloc(size_t);
 extern void* realloc(void*, size_t);
-
 extern void free(void*);
 
 extern ssize_t read(int, void*, size_t);
@@ -38,7 +47,6 @@ extern ssize_t write(int, const void*, size_t);
 
 extern int open(const char*, int, ...);
 extern int close(int);
-
 extern int fstat(int, stat*);
 
 extern int tcgetattr(int, termios*);
@@ -49,14 +57,13 @@ extern int poll(pollfd*, nfds_t, int);
 
 #define O_RDONLY 0x0000
 #define O_WRONLY 0x0001
-#define O_CREAT 0x0040
-#define O_TRUNC 0x0200
 
-#if defined(NAEVI_DARWIN)
-#undef O_CREAT
-#undef O_TRUNC
+#if defined(NAEVI_DARWIN) || defined(NAEVI_MSYS)
 #define O_CREAT 0x0200
 #define O_TRUNC 0x0400
+#else
+#define O_CREAT 0x0040
+#define O_TRUNC 0x0200
 #endif
 
 #if defined(NAEVI_LINUX)
@@ -66,8 +73,8 @@ extern int poll(pollfd*, nfds_t, int);
 #define STAT_BUF_SIZE 144
 #define STAT_SIZE_OFFSET 96
 #elif defined(NAEVI_MSYS)
-#define STAT_BUF_SIZE 96
-#define STAT_SIZE_OFFSET 32
+#define STAT_BUF_SIZE 128
+#define STAT_SIZE_OFFSET 40
 #else
 #define STAT_BUF_SIZE 144
 #define STAT_SIZE_OFFSET 48
@@ -130,17 +137,18 @@ struct termios {
     tcflag_t c_oflag;
     tcflag_t c_cflag;
     tcflag_t c_lflag;
-    cc_t c_line;
+    char c_line;
     cc_t c_cc[NCCS];
+    char8_t c_reserved_pad[1];
     speed_t c_ispeed;
     speed_t c_ospeed;
 };
 
 #define T_ICANON 0x0002
-#define T_ECHO 0x0008
+#define T_ECHO 0x0004
 #define T_ISIG 0x0001
-#define T_VMIN 6
-#define T_VTIME 5
+#define T_VMIN 9
+#define T_VTIME 16
 
 #else
 
@@ -168,6 +176,8 @@ struct termios {
 
 #if defined(NAEVI_DARWIN)
 #define TIOCGWINSZ 0x40087468
+#elif defined(NAEVI_MSYS)
+#define TIOCGWINSZ 0x5401
 #else
 #define TIOCGWINSZ 0x5413
 #endif
@@ -192,6 +202,7 @@ struct pollfd {
 #define COMMAND_MODE 2
 
 #define OUTPUT_MAX (1024 * 64)
+#define TEXT_BUF_SIZE 4096
 
 typedef struct {
     char8_t* Buffer;
@@ -209,9 +220,9 @@ typedef struct {
     termios OriginalTermios;
     unsigned short Rows;
     unsigned short Columns;
-    char8_t FileName[1024];
-    char8_t Status[256];
-    char8_t CommandLine[256];
+    char8_t FileName[TEXT_BUF_SIZE];
+    char8_t Status[TEXT_BUF_SIZE];
+    char8_t CommandLine[TEXT_BUF_SIZE];
     char8_t OutputBuffer[OUTPUT_MAX];
     uint8_t Mode;
     bool Dirty;
@@ -247,6 +258,7 @@ static ABI size_t cursor_offset(void);
 static ABI void buffer_insert(size_t offset, char8_t c);
 static ABI void buffer_delete(size_t offset);
 static ABI void adjust_scroll(void);
+static ABI void move_cursor(char8_t direction);
 
 ABI int main(int argc, char* argv[]) {
     char8_t byte;
@@ -287,7 +299,6 @@ ABI int main(int argc, char* argv[]) {
             if (fstat(fd, (stat*) statBuffer) != 0) size = -1;
             else {
                 off_t* size_ptr = (off_t*) (statBuffer + STAT_SIZE_OFFSET);
-
                 size = *size_ptr;
             }
 
@@ -339,15 +350,17 @@ ABI int main(int argc, char* argv[]) {
 
         if (byte == 0x1b && input_ready(20)) {
             char8_t next;
+            bool isArrow = false;
+
             n = read(0, &next, 1);
             if (n > 0 && next == '[' && input_ready(20)) {
                 char8_t code;
                 n = read(0, &code, 1);
                 if (n > 0) switch (code) {
-                    case 'A': byte = 'k'; break;
-                    case 'B': byte = 'j'; break;
-                    case 'C': byte = 'l'; break;
-                    case 'D': byte = 'h'; break;
+                    case 'A': byte = 'k'; isArrow = true; break;
+                    case 'B': byte = 'j'; isArrow = true; break;
+                    case 'C': byte = 'l'; isArrow = true; break;
+                    case 'D': byte = 'h'; isArrow = true; break;
 
                     default: byte = 0x1b; break;
                 } else {
@@ -356,6 +369,23 @@ ABI int main(int argc, char* argv[]) {
 
                     byte = 0x1b;
                 }
+            }
+
+            if (isArrow) {
+                switch (G->Mode) {
+                    case NORMAL_MODE:
+                    case INSERT_MODE: {
+                        move_cursor(byte);
+                        clamp_column();
+                        adjust_scroll();
+
+                        break;
+                    }
+
+                    default: break;
+                }
+
+                render(); continue;
             }
 
             if (byte == 0x1b) switch (G->Mode) {
@@ -370,9 +400,7 @@ ABI int main(int argc, char* argv[]) {
                         default: break;
                     }
 
-                    adjust_scroll();
-
-                    break;
+                    adjust_scroll(); break;
                 }
 
                 case COMMAND_MODE: G->Mode = NORMAL_MODE; G->CommandLineLength = 0; break;
@@ -380,9 +408,7 @@ ABI int main(int argc, char* argv[]) {
                 default: break;
             }
 
-            render();
-
-            continue;
+            render(); continue;
         }
 
         switch (G->Mode) {
@@ -405,6 +431,7 @@ ABI int main(int argc, char* argv[]) {
 
                                 G->BufferLength -= length;
                                 rebuild_line_offsets();
+
                                 G->Dirty = true;
                             }
                         }
@@ -427,10 +454,10 @@ ABI int main(int argc, char* argv[]) {
 
                     default: {
                         switch (byte) {
-                            case 'h': if (G->Column > 0) G->Column--; break;
-                            case 'l': if (line_length(G->Row) > 0 && G->Column + 1 < line_length(G->Row)) G->Column++; break;
-                            case 'j': if (G->Row + 1 < G->LineCount) G->Row++; break;
-                            case 'k': if (G->Row > 0) G->Row--; break;
+                            case 'h': move_cursor('h'); break;
+                            case 'l': move_cursor('l'); break;
+                            case 'j': move_cursor('j'); break;
+                            case 'k': move_cursor('k'); break;
                             case '0': G->Column = 0; break;
                             case '$': G->Column = line_length(G->Row) > 0 ? line_length(G->Row) - 1 : 0; break;
                             case 'G': if (G->LineCount > 0) G->Row = G->LineCount - 1; break;
@@ -500,8 +527,7 @@ ABI int main(int argc, char* argv[]) {
                     default: break;
                 }
 
-                adjust_scroll();
-                break;
+                adjust_scroll(); break;
             }
 
             case INSERT_MODE: {
@@ -545,8 +571,7 @@ ABI int main(int argc, char* argv[]) {
                     default: break;
                 }
 
-                adjust_scroll();
-                break;
+                adjust_scroll(); break;
             }
 
             case COMMAND_MODE: {
@@ -565,18 +590,23 @@ ABI int main(int argc, char* argv[]) {
                                 switch (command[1]) {
                                     case '\0': {
                                         if (G->Dirty && !G->ForceQuit) set_status("Unsaved changes, :q! to force.");
-                                        else G->Running = false;
-                                        break;
+
+                                        else G->Running = false; break;
                                     }
+
                                     case '!': {
                                         switch (command[2]) {
                                             case '\0': G->Running = false; break;
+
                                             default: set_status("Unknown command."); break;
                                         }
+
                                         break;
                                     }
+
                                     default: set_status("Unknown command."); break;
                                 }
+
                                 break;
                             }
 
@@ -586,30 +616,55 @@ ABI int main(int argc, char* argv[]) {
                                     case '!': {
                                         switch (command[command[1] == '!' ? 2 : 1]) {
                                             case '\0': save_file(); break;
+
                                             default: set_status("Unknown command."); break;
                                         }
+
                                         break;
                                     }
+
                                     case 'q': {
                                         switch (command[2]) {
                                             case '\0': {
                                                 save_file();
-                                                G->Running = false;
-                                                break;
+
+                                                G->Running = false; break;
                                             }
+
                                             case '!': {
                                                 switch (command[3]) {
                                                     case '\0': {
                                                         save_file();
-                                                        G->Running = false;
-                                                        break;
+
+                                                        G->Running = false; break;
                                                     }
+
                                                     default: set_status("Unknown command."); break;
                                                 }
+
                                                 break;
                                             }
+                                            case ' ': {
+                                                switch (command[3]) {
+                                                    case '\0': set_status("Unknown command."); break;
+                                                    default: {
+                                                        size_t length = strlen((const char*) (command + 3));
+
+                                                        if (length >= sizeof(G->FileName)) length = sizeof(G->FileName) - 1;
+                                                        memcpy(G->FileName, command + 3, length);
+                                                        G->FileName[length] = '\0';
+
+                                                        save_file();
+                                                        G->Running = false; break;
+                                                    }
+                                                }
+
+                                                break;
+                                            }
+
                                             default: set_status("Unknown command."); break;
                                         }
+
                                         break;
                                     }
                                     case ' ': {
@@ -622,14 +677,16 @@ ABI int main(int argc, char* argv[]) {
                                                 memcpy(G->FileName, command + 2, length);
                                                 G->FileName[length] = '\0';
 
-                                                save_file();
-                                                break;
+                                                save_file(); break;
                                             }
                                         }
+
                                         break;
                                     }
+
                                     default: set_status("Unknown command."); break;
                                 }
+
                                 break;
                             }
 
@@ -637,22 +694,27 @@ ABI int main(int argc, char* argv[]) {
                                 switch (command[1]) {
                                     case '\0': {
                                         save_file();
-                                        G->Running = false;
-                                        break;
+
+                                        G->Running = false; break;
                                     }
+
                                     case '!': {
                                         switch (command[2]) {
                                             case '\0': {
                                                 save_file();
-                                                G->Running = false;
-                                                break;
+
+                                                G->Running = false; break;
                                             }
+
                                             default: set_status("Unknown command."); break;
                                         }
+
                                         break;
                                     }
+
                                     default: set_status("Unknown command."); break;
                                 }
+
                                 break;
                             }
 
@@ -660,9 +722,7 @@ ABI int main(int argc, char* argv[]) {
                         }
 
                         G->Mode = NORMAL_MODE;
-                        G->CommandLineLength = 0;
-
-                        break;
+                        G->CommandLineLength = 0; break;
                     }
 
                     case 127:
@@ -670,6 +730,7 @@ ABI int main(int argc, char* argv[]) {
 
                     default: if (byte >= 32 && byte < 127 && G->CommandLineLength + 1 < sizeof(G->CommandLine)) G->CommandLine[G->CommandLineLength++] = byte; break;
                 }
+
                 break;
             }
 
@@ -776,11 +837,14 @@ static void clamp_column(void) {
     size_t length = line_length(G->Row);
     if (length == 0) {
         G->Column = 0;
-
         return;
     }
 
-    if (G->Column >= length) G->Column = length - 1;
+    if (G->Mode == INSERT_MODE) {
+        if (G->Column > length) G->Column = length;
+    } else {
+        if (G->Column >= length) G->Column = length - 1;
+    }
 }
 
 static void output_flush(void) {
@@ -991,6 +1055,7 @@ static void render(void) {
 
 static size_t cursor_offset(void) {
     size_t offset = G->LineOffset[G->Row] + G->Column;
+
     return offset > G->BufferLength ? G->BufferLength : offset;
 }
 
@@ -1026,6 +1091,7 @@ static void buffer_delete(size_t offset) {
 static void adjust_scroll(void) {
     unsigned short screenRows = G->Rows - 1;
     size_t columns = G->Columns ? G->Columns : 1;
+
     size_t visualRows;
     size_t line;
 
@@ -1038,6 +1104,18 @@ static void adjust_scroll(void) {
 
     while (visualRows > screenRows && G->Top < G->Row) {
         visualRows -= line_visual_row_count(G->Top);
+
         G->Top++;
+    }
+}
+
+static void move_cursor(char8_t direction) {
+    switch (direction) {
+        case 'h': if (G->Column > 0) G->Column--; break;
+        case 'l': if (line_length(G->Row) > 0 && G->Column < line_length(G->Row)) G->Column++; break;
+        case 'j': if (G->Row + 1 < G->LineCount) G->Row++; break;
+        case 'k': if (G->Row > 0) G->Row--; break;
+
+        default: break;
     }
 }

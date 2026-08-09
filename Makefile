@@ -2,7 +2,7 @@
 
 NAME = naevi
 
-ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+ROOT := $(dir $(lastword $(MAKEFILE_LIST)))
 
 SOURCE := $(ROOT)source
 BUILD := $(ROOT)build
