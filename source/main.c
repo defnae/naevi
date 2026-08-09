@@ -201,6 +201,8 @@ struct pollfd {
 #define INSERT_MODE 1
 #define COMMAND_MODE 2
 
+#define KEY_INSERT 0x101
+
 #define OUTPUT_MAX (1024 * 64)
 #define TEXT_BUF_SIZE 4096
 #define TAB_WIDTH 8
@@ -260,11 +262,12 @@ static ABI void render(void);
 static ABI size_t cursor_offset(void);
 static ABI void buffer_insert(size_t offset, char8_t c);
 static ABI void buffer_delete(size_t offset);
+static ABI void delete_char_at_cursor(void);
 static ABI void adjust_scroll(void);
-static ABI void move_cursor(char8_t direction);
+static ABI void move_cursor(int direction);
 
 ABI int main(int argc, char* argv[]) {
-    char8_t byte;
+    int byte;
 
     G->Running = true;
 
@@ -347,25 +350,59 @@ ABI int main(int argc, char* argv[]) {
             byte = G->Pushback;
             G->HasPushback = false;
         } else {
-            n = read(0, &byte, 1);
+            char8_t rawByte;
+            n = read(0, &rawByte, 1);
             if (n <= 0) break;
+            byte = rawByte;
         }
 
         if (byte == 0x1b && input_ready(20)) {
             char8_t next;
-            bool isArrow = false;
+            bool isNavKey = false;
 
             n = read(0, &next, 1);
             if (n > 0 && next == '[' && input_ready(20)) {
                 char8_t code;
                 n = read(0, &code, 1);
-                if (n > 0) switch (code) {
-                    case 'A': byte = 'k'; isArrow = true; break;
-                    case 'B': byte = 'j'; isArrow = true; break;
-                    case 'C': byte = 'l'; isArrow = true; break;
-                    case 'D': byte = 'h'; isArrow = true; break;
+                if (n > 0) {
+                    switch (code) {
+                        case 'A': byte = 'k'; isNavKey = true; break;
+                        case 'B': byte = 'j'; isNavKey = true; break;
+                        case 'C': byte = 'l'; isNavKey = true; break;
+                        case 'D': byte = 'h'; isNavKey = true; break;
+                        case 'H': byte = '0'; isNavKey = true; break;
+                        case 'F': byte = '$'; isNavKey = true; break;
 
-                    default: byte = 0x1b; break;
+                        case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': {
+                            if (input_ready(20)) {
+                                char8_t tilde;
+                                n = read(0, &tilde, 1);
+                                if (n > 0) {
+                                    if (tilde == '~') {
+                                        switch (code) {
+                                            case '1': case '7': byte = '0'; isNavKey = true; break;
+                                            case '4': case '8': byte = '$'; isNavKey = true; break;
+                                            case '2': byte = KEY_INSERT; isNavKey = true; break;
+                                            case '3': byte = 'x'; isNavKey = true; break;
+                                            case '5': byte = 0x02; isNavKey = true; break;
+                                            case '6': byte = 0x06; isNavKey = true; break;
+                                            default: break;
+                                        }
+                                    } else {
+                                        // Sequence has modifiers (e.g. ESC [ 3 ; 5 ~)
+                                        // Drain remaining parameter/modifier bytes until terminating byte (0x40 - 0x7E)
+                                        char8_t drain = tilde;
+                                        while ((drain < 0x40 || drain > 0x7E) && input_ready(20)) {
+                                            if (read(0, &drain, 1) <= 0) break;
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                        }
+
+                        default: break;
+                    }
                 } else {
                     G->Pushback = next;
                     G->HasPushback = true;
@@ -374,18 +411,39 @@ ABI int main(int argc, char* argv[]) {
                 }
             }
 
-            if (isArrow) {
-                switch (G->Mode) {
-                    case NORMAL_MODE:
-                    case INSERT_MODE: {
-                        move_cursor(byte);
+            if (isNavKey) {
+                if (byte == KEY_INSERT) {
+                    if (G->Mode == NORMAL_MODE || G->Mode == INSERT_MODE) {
+                        if (G->Mode == INSERT_MODE) {
+                            if (G->Column > 0) {
+                                size_t start = G->LineOffset[G->Row];
+                                G->Column--;
+                                while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
+                            }
+                            G->Mode = NORMAL_MODE;
+                        } else {
+                            G->Mode = INSERT_MODE;
+                        }
                         clamp_column();
                         adjust_scroll();
-
-                        break;
                     }
+                } else {
+                    switch (G->Mode) {
+                        case NORMAL_MODE:
+                        case INSERT_MODE: {
+                            if (byte == 'x') {
+                                delete_char_at_cursor();
+                            } else {
+                                move_cursor(byte);
+                            }
+                            clamp_column();
+                            adjust_scroll();
 
-                    default: break;
+                            break;
+                        }
+
+                        default: break;
+                    }
                 }
 
                 render(); continue;
@@ -465,18 +523,8 @@ ABI int main(int argc, char* argv[]) {
                             case 'l': move_cursor('l'); break;
                             case 'j': move_cursor('j'); break;
                             case 'k': move_cursor('k'); break;
-                            case '0': G->Column = 0; break;
-                            case '$': {
-                                size_t len = line_length(G->Row);
-                                if (len > 0) {
-                                    size_t start = G->LineOffset[G->Row];
-                                    G->Column = len - 1;
-                                    while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
-                                } else {
-                                    G->Column = 0;
-                                }
-                                break;
-                            }
+                            case '0': move_cursor('0'); break;
+                            case '$': move_cursor('$'); break;
                             case 'G': if (G->LineCount > 0) G->Row = G->LineCount - 1; break;
                             case 'g': G->Pending = 'g'; break;
                             case 'i': G->Mode = INSERT_MODE; break;
@@ -513,17 +561,7 @@ ABI int main(int argc, char* argv[]) {
                             }
 
                             case 'x': {
-                                size_t len = line_length(G->Row);
-                                if (len > 0 && G->Column < len) {
-                                    size_t start = G->LineOffset[G->Row];
-                                    size_t rem = len - G->Column;
-                                    size_t cLen = utf8_char_length(G->Buffer[start + G->Column]);
-                                    size_t k;
-
-                                    if (cLen > rem) cLen = rem;
-
-                                    for (k = 0; k < cLen; k++) buffer_delete(cursor_offset());
-                                }
+                                delete_char_at_cursor();
                                 break;
                             }
                             case 'd': G->Pending = 'd'; break;
@@ -539,19 +577,8 @@ ABI int main(int argc, char* argv[]) {
                                 break;
                             }
 
-                            case 0x06: {
-                                G->Row += (G->Rows - 1) / 2;
-                                if (G->Row >= G->LineCount && G->LineCount > 0) G->Row = G->LineCount - 1;
-
-                                break;
-                            }
-
-                            case 0x02: {
-                                if (G->Row >= (G->Rows - 1) / 2) G->Row -= (G->Rows - 1) / 2;
-                                else G->Row = 0;
-
-                                break;
-                            }
+                            case 0x06: move_cursor(0x06); break;
+                            case 0x02: move_cursor(0x02); break;
 
                             default: break;
                         }
@@ -626,8 +653,8 @@ ABI int main(int argc, char* argv[]) {
                     }
 
                     default:
-                        if (byte >= 32) {
-                            buffer_insert(cursor_offset(), byte);
+                        if (byte >= 32 && byte < 0x100) {
+                            buffer_insert(cursor_offset(), (char8_t) byte);
                             G->Column++;
                         }
                         break;
@@ -796,7 +823,7 @@ ABI int main(int argc, char* argv[]) {
                     case 127:
                     case 8: if (G->CommandLineLength > 0) G->CommandLineLength--; break;
 
-                    default: if (byte >= 32 && byte < 127 && G->CommandLineLength + 1 < sizeof(G->CommandLine)) G->CommandLine[G->CommandLineLength++] = byte; break;
+                    default: if (byte >= 32 && byte < 127 && G->CommandLineLength + 1 < sizeof(G->CommandLine)) G->CommandLine[G->CommandLineLength++] = (char8_t) byte; break;
                 }
 
                 break;
@@ -1265,6 +1292,20 @@ static void buffer_delete(size_t offset) {
     G->Dirty = true;
 }
 
+static void delete_char_at_cursor(void) {
+    size_t len = line_length(G->Row);
+    if (len > 0 && G->Column < len) {
+        size_t start = G->LineOffset[G->Row];
+        size_t rem = len - G->Column;
+        size_t cLen = utf8_char_length(G->Buffer[start + G->Column]);
+        size_t k;
+
+        if (cLen > rem) cLen = rem;
+
+        for (k = 0; k < cLen; k++) buffer_delete(cursor_offset());
+    }
+}
+
 static void adjust_scroll(void) {
     unsigned short screenRows = G->Rows - 1;
 
@@ -1287,7 +1328,7 @@ static void adjust_scroll(void) {
     }
 }
 
-static void move_cursor(char8_t direction) {
+static void move_cursor(int direction) {
     size_t length = line_length(G->Row);
     size_t start = G->LineOffset[G->Row];
 
@@ -1308,6 +1349,34 @@ static void move_cursor(char8_t direction) {
         }
         case 'j': if (G->Row + 1 < G->LineCount) G->Row++; break;
         case 'k': if (G->Row > 0) G->Row--; break;
+
+        case '0': G->Column = 0; break;
+
+        case '$': {
+            if (length > 0) {
+                if (G->Mode == INSERT_MODE) {
+                    G->Column = length;
+                } else {
+                    G->Column = length - 1;
+                    while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
+                }
+            } else {
+                G->Column = 0;
+            }
+            break;
+        }
+
+        case 0x06: {
+            G->Row += (G->Rows - 1) / 2;
+            if (G->Row >= G->LineCount && G->LineCount > 0) G->Row = G->LineCount - 1;
+            break;
+        }
+
+        case 0x02: {
+            if (G->Row >= (G->Rows - 1) / 2) G->Row -= (G->Rows - 1) / 2;
+            else G->Row = 0;
+            break;
+        }
 
         default: break;
     }
