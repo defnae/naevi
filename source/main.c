@@ -203,6 +203,7 @@ struct pollfd {
 
 #define OUTPUT_MAX (1024 * 64)
 #define TEXT_BUF_SIZE 4096
+#define TAB_WIDTH 8
 
 typedef struct {
     char8_t* Buffer;
@@ -243,7 +244,9 @@ static ABI void ensure_buffer_capacity(size_t needed);
 static ABI void ensure_line_capacity(size_t needed);
 static ABI void rebuild_line_offsets(void);
 static ABI size_t line_length(size_t line);
+static ABI size_t line_layout(size_t line, size_t stopByte, size_t *stopRow, size_t *stopCol);
 static ABI size_t line_visual_row_count(size_t line);
+static ABI size_t utf8_char_length(char8_t c);
 static ABI void clamp_column(void);
 static ABI void output_flush(void);
 static ABI void output_bytes(const char8_t* s, size_t count);
@@ -390,7 +393,11 @@ ABI int main(int argc, char* argv[]) {
 
             if (byte == 0x1b) switch (G->Mode) {
                 case INSERT_MODE: {
-                    if (G->Column > 0) G->Column--;
+                    if (G->Column > 0) {
+                        size_t start = G->LineOffset[G->Row];
+                        G->Column--;
+                        while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
+                    }
 
                     G->Mode = NORMAL_MODE;
 
@@ -459,11 +466,30 @@ ABI int main(int argc, char* argv[]) {
                             case 'j': move_cursor('j'); break;
                             case 'k': move_cursor('k'); break;
                             case '0': G->Column = 0; break;
-                            case '$': G->Column = line_length(G->Row) > 0 ? line_length(G->Row) - 1 : 0; break;
+                            case '$': {
+                                size_t len = line_length(G->Row);
+                                if (len > 0) {
+                                    size_t start = G->LineOffset[G->Row];
+                                    G->Column = len - 1;
+                                    while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
+                                } else {
+                                    G->Column = 0;
+                                }
+                                break;
+                            }
                             case 'G': if (G->LineCount > 0) G->Row = G->LineCount - 1; break;
                             case 'g': G->Pending = 'g'; break;
                             case 'i': G->Mode = INSERT_MODE; break;
-                            case 'a': G->Mode = INSERT_MODE; if (line_length(G->Row) > 0) G->Column++; break;
+                            case 'a': {
+                                size_t len = line_length(G->Row);
+                                G->Mode = INSERT_MODE;
+                                if (len > 0) {
+                                    size_t start = G->LineOffset[G->Row];
+                                    size_t cLen = utf8_char_length(G->Buffer[start + G->Column]);
+                                    G->Column += cLen;
+                                }
+                                break;
+                            }
                             case 'A': G->Mode = INSERT_MODE; G->Column = line_length(G->Row); break;
                             case 'I': G->Column = 0; G->Mode = INSERT_MODE; break;
 
@@ -486,7 +512,20 @@ ABI int main(int argc, char* argv[]) {
                                 break;
                             }
 
-                            case 'x': if (line_length(G->Row) > 0) buffer_delete(cursor_offset()); break;
+                            case 'x': {
+                                size_t len = line_length(G->Row);
+                                if (len > 0 && G->Column < len) {
+                                    size_t start = G->LineOffset[G->Row];
+                                    size_t rem = len - G->Column;
+                                    size_t cLen = utf8_char_length(G->Buffer[start + G->Column]);
+                                    size_t k;
+
+                                    if (cLen > rem) cLen = rem;
+
+                                    for (k = 0; k < cLen; k++) buffer_delete(cursor_offset());
+                                }
+                                break;
+                            }
                             case 'd': G->Pending = 'd'; break;
 
                             case ':': {
@@ -532,20 +571,37 @@ ABI int main(int argc, char* argv[]) {
 
             case INSERT_MODE: {
                 switch (byte) {
-                    case 0x1b: if (G->Column > 0) G->Column--; G->Mode = NORMAL_MODE; break;
+                    case 0x1b: {
+                        if (G->Column > 0) {
+                            size_t start = G->LineOffset[G->Row];
+                            G->Column--;
+                            while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
+                        }
+                        G->Mode = NORMAL_MODE;
+                        break;
+                    }
 
                     case 127:
                     case 8: {
+                        size_t bytesToDelete;
+                        size_t k;
+
                         if (cursor_offset() > 0) {
                             bool mergingUp = (G->Column == 0 && G->Row > 0);
                             size_t joinColumn = mergingUp ? line_length(G->Row - 1) : 0;
 
-                            buffer_delete(cursor_offset() - 1);
-
-                            if (!mergingUp) G->Column--;
-                            else {
+                            if (mergingUp) {
+                                buffer_delete(cursor_offset() - 1);
                                 G->Row--;
                                 G->Column = joinColumn;
+                            } else if (G->Column > 0) {
+                                size_t start = G->LineOffset[G->Row];
+                                size_t oldCol = G->Column;
+                                G->Column--;
+                                while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
+
+                                bytesToDelete = oldCol - G->Column;
+                                for (k = 0; k < bytesToDelete; k++) buffer_delete(start + G->Column);
                             }
                         }
 
@@ -562,7 +618,19 @@ ABI int main(int argc, char* argv[]) {
                         break;
                     }
 
-                    default: if (byte >= 32 && byte < 127) { buffer_insert(cursor_offset(), byte); G->Column++; } break;
+                    case '\t': {
+                        buffer_insert(cursor_offset(), '\t');
+                        G->Column++;
+
+                        break;
+                    }
+
+                    default:
+                        if (byte >= 32) {
+                            buffer_insert(cursor_offset(), byte);
+                            G->Column++;
+                        }
+                        break;
                 }
 
                 switch (G->Mode) {
@@ -826,15 +894,92 @@ static size_t line_length(size_t line) {
     return (end > start) ? (end - start) : 0;
 }
 
-static size_t line_visual_row_count(size_t line) {
-    size_t length = line_length(line);
-    size_t columns = G->Columns ? G->Columns : 1;
+static size_t line_layout(size_t line, size_t stopByte, size_t *stopRow, size_t *stopCol) {
+    size_t start, length, columns, byteOfs, row, visCol;
+    bool stopped;
 
-    return length == 0 ? 1 : (length + columns - 1) / columns;
+    if (line >= G->LineCount) {
+        if (stopRow) *stopRow = 0;
+        if (stopCol) *stopCol = 0;
+        return 1;
+    }
+
+    start = G->LineOffset[line];
+    length = line_length(line);
+    columns = G->Columns ? G->Columns : 1;
+
+    byteOfs = 0;
+    row = 0;
+    visCol = 0;
+    stopped = false;
+
+    while (byteOfs < length) {
+        char8_t c = G->Buffer[start + byteOfs];
+
+        if (c == '\t') {
+            size_t width = TAB_WIDTH - (visCol % TAB_WIDTH);
+
+            if (visCol + width > columns && visCol > 0) {
+                row++;
+                visCol = 0;
+                continue;
+            }
+
+            if (!stopped && byteOfs >= stopByte) {
+                if (stopRow) *stopRow = row;
+                if (stopCol) *stopCol = visCol;
+                stopped = true;
+            }
+
+            visCol += width;
+            byteOfs++;
+        } else if ((c & 0xC0) == 0x80) {
+            byteOfs++;
+        } else {
+            if (visCol + 1 > columns && visCol > 0) {
+                row++;
+                visCol = 0;
+                continue;
+            }
+
+            if (!stopped && byteOfs >= stopByte) {
+                if (stopRow) *stopRow = row;
+                if (stopCol) *stopCol = visCol;
+                stopped = true;
+            }
+
+            visCol++;
+            byteOfs++;
+
+            while (byteOfs < length && (G->Buffer[start + byteOfs] & 0xC0) == 0x80) byteOfs++;
+        }
+    }
+
+    if (!stopped) {
+        if (stopRow) *stopRow = row;
+        if (stopCol) *stopCol = visCol;
+    }
+
+    return row + 1;
+}
+
+static size_t line_visual_row_count(size_t line) {
+    return line_layout(line, (size_t) -1, NULL, NULL);
+}
+
+static size_t utf8_char_length(char8_t c) {
+    if ((c & 0x80) == 0x00) return 1;
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+
+    return 1;
 }
 
 static void clamp_column(void) {
     size_t length = line_length(G->Row);
+    size_t start = G->LineOffset[G->Row];
+
     if (length == 0) {
         G->Column = 0;
         return;
@@ -845,6 +990,8 @@ static void clamp_column(void) {
     } else {
         if (G->Column >= length) G->Column = length - 1;
     }
+
+    while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
 }
 
 static void output_flush(void) {
@@ -970,15 +1117,43 @@ static void render(void) {
         size_t start = G->LineOffset[line];
         size_t rowsForLine = line_visual_row_count(line);
         size_t subRow;
+        size_t byteOfs = 0;
 
         for (subRow = 0; subRow < rowsForLine && screenRow < screenRows; subRow++) {
-            size_t drawnSoFar = subRow * columns;
-            size_t remaining = length - drawnSoFar;
-            size_t chunk = remaining > columns ? columns : remaining;
+            size_t visCol = 0;
 
             cursor_goto(screenRow, 0);
             output_csi("2K");
-            output_bytes(G->Buffer + start + drawnSoFar, chunk);
+
+            while (byteOfs < length) {
+                char8_t c = G->Buffer[start + byteOfs];
+
+                if (c == '\t') {
+                    size_t width = TAB_WIDTH - (visCol % TAB_WIDTH);
+                    size_t k;
+
+                    if (visCol + width > columns && visCol > 0) break;
+
+                    for (k = 0; k < width; k++) output_byte(' ');
+
+                    visCol += width;
+                    byteOfs++;
+                } else if ((c & 0xC0) == 0x80) {
+                    output_byte(c);
+                    byteOfs++;
+                } else {
+                    if (visCol + 1 > columns && visCol > 0) break;
+
+                    output_byte(c);
+                    visCol++;
+                    byteOfs++;
+
+                    while (byteOfs < length && (G->Buffer[start + byteOfs] & 0xC0) == 0x80) {
+                        output_byte(G->Buffer[start + byteOfs]);
+                        byteOfs++;
+                    }
+                }
+            }
 
             screenRow++;
         }
@@ -1039,10 +1214,12 @@ static void render(void) {
         default: {
             size_t visualRow = 0;
             size_t lineIndex;
+            size_t rowInLine, colInLine;
             for (lineIndex = G->Top; lineIndex < G->Row; lineIndex++) visualRow += line_visual_row_count(lineIndex);
 
-            visualRow += G->Column / columns;
-            cursor_goto((unsigned short) visualRow, (unsigned short) G->Column % columns);
+            line_layout(G->Row, G->Column, &rowInLine, &colInLine);
+            visualRow += rowInLine;
+            cursor_goto((unsigned short) visualRow, (unsigned short) colInLine);
 
             break;
         }
@@ -1090,17 +1267,18 @@ static void buffer_delete(size_t offset) {
 
 static void adjust_scroll(void) {
     unsigned short screenRows = G->Rows - 1;
-    size_t columns = G->Columns ? G->Columns : 1;
 
     size_t visualRows;
     size_t line;
+    size_t rowInLine;
 
     if (G->Row < G->Top) G->Top = G->Row;
 
     visualRows = 0;
     for (line = G->Top; line < G->Row; line++) visualRows += line_visual_row_count(line);
 
-    visualRows += (G->Column / columns) + 1;
+    line_layout(G->Row, G->Column, &rowInLine, NULL);
+    visualRows += rowInLine + 1;
 
     while (visualRows > screenRows && G->Top < G->Row) {
         visualRows -= line_visual_row_count(G->Top);
@@ -1110,9 +1288,24 @@ static void adjust_scroll(void) {
 }
 
 static void move_cursor(char8_t direction) {
+    size_t length = line_length(G->Row);
+    size_t start = G->LineOffset[G->Row];
+
     switch (direction) {
-        case 'h': if (G->Column > 0) G->Column--; break;
-        case 'l': if (line_length(G->Row) > 0 && G->Column < line_length(G->Row)) G->Column++; break;
+        case 'h': {
+            if (G->Column > 0) {
+                G->Column--;
+                while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
+            }
+            break;
+        }
+        case 'l': {
+            if (length > 0 && G->Column < length) {
+                G->Column++;
+                while (G->Column < length && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column++;
+            }
+            break;
+        }
         case 'j': if (G->Row + 1 < G->LineCount) G->Row++; break;
         case 'k': if (G->Row > 0) G->Row--; break;
 
