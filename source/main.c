@@ -1,443 +1,301 @@
 // main.c
 
+#include <headers/naevi/naevi.h>
+
+#include <headers/abi.h>
+#include <headers/attr.h>
+
 #include <headers/std/int.h>
 #include <headers/std/char.h>
 #include <headers/std/bool.h>
 #include <headers/std/def.h>
-#include <headers/std/arg.h>
 #include <headers/std/str.h>
-#include <headers/std/attr.h>
 
-#ifdef _WIN32
-#define ABI MSABI
-#else
-#define ABI SYSVABI
-#endif
-
-#if defined(__linux__)
-#define NAEVI_LINUX 1
-#elif defined(__APPLE__)
-#define NAEVI_DARWIN 1
-#elif defined(__CYGWIN__) || defined(__MSYS__)
-#define NAEVI_MSYS 1
-#else
-#error "Unsupported platform: only Linux, macOS, and MSYS2 are supported."
-#endif
-
-typedef ptrdiff_t ssize_t;
-typedef long long off_t;
-
-#if defined(NAEVI_LINUX)
-typedef unsigned long nfds_t;
-#else
-typedef unsigned int nfds_t;
-#endif
-
-typedef struct termios termios;
-typedef struct stat stat;
-typedef struct pollfd pollfd;
-typedef struct winsize winsize;
-
-extern void* malloc(size_t);
-extern void* realloc(void*, size_t);
-extern void free(void*);
-
-extern ssize_t read(int, void*, size_t);
-extern ssize_t write(int, const void*, size_t);
-
-extern int open(const char*, int, ...);
-extern int close(int);
-extern int fstat(int, stat*);
-
-extern int tcgetattr(int, termios*);
-extern int tcsetattr(int, int, const termios*);
-
-extern int ioctl(int, unsigned long, ...);
-extern int poll(pollfd*, nfds_t, int);
-
-#define O_RDONLY 0x0000
-#define O_WRONLY 0x0001
-
-#if defined(NAEVI_DARWIN) || defined(NAEVI_MSYS)
-#define O_CREAT 0x0200
-#define O_TRUNC 0x0400
-#else
-#define O_CREAT 0x0040
-#define O_TRUNC 0x0200
-#endif
-
-#if defined(NAEVI_LINUX)
-#define STAT_BUF_SIZE 144
-#define STAT_SIZE_OFFSET 48
-#elif defined(NAEVI_DARWIN)
-#define STAT_BUF_SIZE 144
-#define STAT_SIZE_OFFSET 96
-#elif defined(NAEVI_MSYS)
-#define STAT_BUF_SIZE 128
-#define STAT_SIZE_OFFSET 40
-#else
-#define STAT_BUF_SIZE 144
-#define STAT_SIZE_OFFSET 48
-#endif
-
-#define TCSANOW 0
-
-typedef unsigned int tcflag_t;
-typedef unsigned char cc_t;
-typedef unsigned int speed_t;
-
-#if defined(NAEVI_LINUX)
-
-#define NCCS 32
-
-struct termios {
-    tcflag_t c_iflag;
-    tcflag_t c_oflag;
-    tcflag_t c_cflag;
-    tcflag_t c_lflag;
-    cc_t c_line;
-    cc_t c_cc[NCCS];
-    char8_t c_reserved_pad[3];
-    speed_t c_ispeed;
-    speed_t c_ospeed;
-};
-
-#define T_ICANON 0x0002
-#define T_ECHO 0x0008
-#define T_ISIG 0x0001
-#define T_VMIN 6
-#define T_VTIME 5
-
-#elif defined(NAEVI_DARWIN)
-
-#define NCCS 20
-
-struct termios {
-    tcflag_t c_iflag;
-    tcflag_t c_oflag;
-    tcflag_t c_cflag;
-    tcflag_t c_lflag;
-    cc_t c_cc[NCCS];
-    speed_t c_ispeed;
-    speed_t c_ospeed;
-};
-
-#define T_ICANON 0x00000100
-#define T_ECHO 0x00000008
-#define T_ISIG 0x00000080
-#define T_VMIN 16
-#define T_VTIME 17
-
-#elif defined(NAEVI_MSYS)
-
-#define NCCS 18
-
-struct termios {
-    tcflag_t c_iflag;
-    tcflag_t c_oflag;
-    tcflag_t c_cflag;
-    tcflag_t c_lflag;
-    char c_line;
-    cc_t c_cc[NCCS];
-    char8_t c_reserved_pad[1];
-    speed_t c_ispeed;
-    speed_t c_ospeed;
-};
-
-#define T_ICANON 0x0002
-#define T_ECHO 0x0004
-#define T_ISIG 0x0001
-#define T_VMIN 9
-#define T_VTIME 16
-
-#else
-
-#define NCCS 32
-
-struct termios {
-    tcflag_t c_iflag;
-    tcflag_t c_oflag;
-    tcflag_t c_cflag;
-    tcflag_t c_lflag;
-    cc_t c_line;
-    cc_t c_cc[NCCS];
-    char8_t c_reserved_pad[3];
-    speed_t c_ispeed;
-    speed_t c_ospeed;
-};
-
-#define T_ICANON 0x0002
-#define T_ECHO 0x0008
-#define T_ISIG 0x0001
-#define T_VMIN 6
-#define T_VTIME 5
-
-#endif
-
-#if defined(NAEVI_DARWIN)
-#define TIOCGWINSZ 0x40087468
-#elif defined(NAEVI_MSYS)
-#define TIOCGWINSZ 0x5401
-#else
-#define TIOCGWINSZ 0x5413
-#endif
-
-struct winsize {
-    unsigned short ws_row;
-    unsigned short ws_col;
-    unsigned short ws_xpixel;
-    unsigned short ws_ypixel;
-};
-
-struct pollfd {
-    int fd;
-    short events;
-    short revents;
-};
-
-#define POLLIN 0x0001
-
-#define NORMAL_MODE 0
-#define INSERT_MODE 1
-#define COMMAND_MODE 2
-
-#define KEY_INSERT 0x101
-
-#define OUTPUT_MAX (1024 * 64)
-#define TEXT_BUF_SIZE 4096
-#define TAB_WIDTH 8
+#define LINE_SCRATCH_BUFFER_SIZE (1024 * 64)
+#define SAVE_CHUNK_BUFFER_SIZE (1024 * 64)
+#define UNDO_HISTORY_LIMIT 1000
 
 typedef struct {
+    PN* Root;
+
     char8_t* Buffer;
-    size_t* LineOffset;
-    size_t BufferLength;
-    size_t BufferCapacity;
-    size_t LineCount;
-    size_t LineCapacity;
-    size_t Row;
-    size_t Column;
-    size_t Top;
+    size_t Length;
+    size_t* Newlines;
+    size_t NewlineCount;
+
+    char8_t* AddBuffer;
+    size_t AddLength;
+    size_t AddCapacity;
+
+    PN** UndoStack;
+    size_t UndoCount;
+    size_t UndoCapacity;
+    PN** RedoStack;
+    size_t RedoCount;
+    size_t RedoCapacity;
+
+    size_t CursorRow;
+    size_t CursorColumn;
+    size_t TopLineIndex;
     size_t StatusLength;
     size_t CommandLineLength;
     size_t OutputLength;
-    termios OriginalTermios;
-    unsigned short Rows;
-    unsigned short Columns;
-    char8_t FileName[TEXT_BUF_SIZE];
-    char8_t Status[TEXT_BUF_SIZE];
-    char8_t CommandLine[TEXT_BUF_SIZE];
-    char8_t OutputBuffer[OUTPUT_MAX];
-    uint8_t Mode;
+
+    uint32_t RNGState;
+    termios Termios;
+
+    unsigned short ScreenRows;
+    unsigned short ScreenColumns;
+
+    uint8_t CurrentMode;
     bool Dirty;
     bool Running;
-    bool ForceQuit;
-    char8_t Pushback;
-    bool HasPushback;
-    char8_t Pending;
-    char8_t pad[1];
+    bool Force;
+    char8_t Character;
+    bool Pushback;
+    char8_t Lead;
+    bool Undo;
+    char8_t pad[4];
+
+    char8_t Filename[TEXT_BUFFER_SIZE];
+    char8_t StatusBuffer[TEXT_BUFFER_SIZE];
+    char8_t CommandLineBuffer[TEXT_BUFFER_SIZE];
+    char8_t OutputBuffer[OUTPUT_BUFFER_MAXIMUM];
+    char8_t ScratchLineBuffer[LINE_SCRATCH_BUFFER_SIZE];
+    char8_t ScratchSaveBuffer[SAVE_CHUNK_BUFFER_SIZE];
 } Globals;
 
-static Globals GlobalData = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {0}, 24, 80, {0}, {0}, {0}, {0}, NORMAL_MODE, false, true, false, 0, false, 0, {0} };
+static Globals GlobalData;
 static Globals* G = &GlobalData;
 
-static ABI bool input_ready(int timeoutMilliseconds);
-static ABI char8_t* u64toa(uint64_t value, char8_t* buffer);
-static ABI void ensure_buffer_capacity(size_t needed);
-static ABI void ensure_line_capacity(size_t needed);
-static ABI void rebuild_line_offsets(void);
-static ABI size_t line_length(size_t line);
-static ABI size_t line_layout(size_t line, size_t stopByte, size_t *stopRow, size_t *stopCol);
-static ABI size_t line_visual_row_count(size_t line);
-static ABI size_t utf8_char_length(char8_t c);
+static ABI bool ready(int ms);
+static ABI char8_t* ull2s(uint64_t value, char8_t* buffer);
+
+static ABI void acap(size_t neededCapacity);
+static ABI INLINE uint32_t rng_next(void);
+
+static ABI PN* pn_create(PS Source, size_t startOffset, size_t len, size_t lineFeeds, PN* leftChild, PN* rightChild, uint32_t Priority);
+static ABI INLINE PN* pn_retain(PN* Node);
+static ABI void pn_release(PN* Node);
+static ABI PN* pn_merge(PN* leftNode, PN* rightNode);
+static ABI SP pn_split(PN* Node, size_t splitKey);
+
+static ABI size_t lown(size_t targetValue);
+static ABI size_t cntnl(PS Source, size_t startOffset, size_t len);
+static ABI size_t findnl(PS Source, size_t startOffset, size_t len, size_t targetNewlineIndex);
+
+static ABI PN* pt_locate(size_t offset, size_t* pieceAbsoluteStart, size_t* offsetInPiece);
+static ABI char8_t pt_character_at(size_t offset);
+static ABI size_t pt_extract(size_t offset, size_t len, char8_t* destinationBuffer, size_t destinationCapacity);
+static ABI bool pt_offset_of_newline(size_t newlineIndex, size_t* outOffset);
+static ABI size_t pt_line_offset(size_t lineNumber);
+static ABI void pt_insertb(size_t offset, const char8_t* dataBytes, size_t len);
+static ABI void pt_delete_range(size_t offset, size_t len);
+static ABI void pt_build_index(void);
+
+static ABI void ucap(size_t neededCapacity);
+static ABI void rcap(size_t neededCapacity);
+static ABI void pushu(PN* rootNode);
+static ABI INLINE PN* popu(void);
+static ABI void pushr(PN* rootNode);
+static ABI INLINE PN* popr(void);
+static ABI void clrr(void);
+static ABI void undo_begin_edit(void);
+static ABI void fixcur(void);
+static ABI void undo(void);
+static ABI void redo(void);
+
+static ABI size_t linelen(size_t lineNumber);
+static ABI size_t linelay(size_t lineNumber, size_t stopByteOffset, size_t* stopRowPointer, size_t* stopColumnPointer);
+static ABI INLINE size_t utf8clen(char8_t c);
 static ABI void clamp_column(void);
-static ABI void output_flush(void);
-static ABI void output_bytes(const char8_t* s, size_t count);
-static ABI void output_string(const char8_t* s);
-static ABI void output_byte(char8_t c);
-static ABI void output_csi(const char8_t* sequence);
-static ABI void cursor_goto(unsigned short row, unsigned short column);
-static ABI void set_status(const char8_t* message);
-static ABI void save_file(void);
+static ABI void oflush(void);
+static ABI void obytes(const char8_t* stringBytes, size_t count);
+static ABI void ostr(const char8_t* string);
+static ABI INLINE void obyte(char8_t byteValue);
+static ABI void seqout(const char8_t* sequence);
+static ABI void setcur(unsigned short row, unsigned short column);
+static ABI void status(const char8_t* message);
+static ABI void save(void);
 static ABI void render(void);
-static ABI size_t cursor_offset(void);
-static ABI void buffer_insert(size_t offset, char8_t c);
-static ABI void buffer_delete(size_t offset);
+static ABI INLINE size_t offsetcur(void);
+static ABI void insbuf(size_t offset, char8_t c);
+static ABI void delbuf(size_t offset);
 static ABI void delete_char_at_cursor(void);
-static ABI void adjust_scroll(void);
-static ABI void move_cursor(int direction);
+static ABI void adjscr(void);
+static ABI void movcur(int direction);
 
 ABI int main(int argc, char* argv[]) {
-    int byte;
+    int inputByte, fd;
 
+    ssize_t readBytesCount;
+    off_t fileSize;
+
+    size_t pathLength, clearIndex, totalBytesRead, startOffset, endOffset, len, characterLength, offset, commandClearIndex, bytesToDelete, deleteIndex, joinColumn, oldColumn, nameLength;
+
+    tcflag_t terminalMask;
+
+    bool isNavigationKey, isMergingUp;
+    char8_t rawInputByte, nextCharacter, keyCode, tildeCharacter, drainByte;
+    uint8_t statBuffer[STAT_BUFFER_SIZE];
+
+    winsize windowSize;
+    termios settings;
+
+    const char8_t* filePath;
+
+    off_t* sizePointer;
+    char8_t* commandString;
+
+    G->ScreenRows = 24;
+    G->ScreenColumns = 80;
+    G->CurrentMode = EDITOR_MODE_NORMAL;
     G->Running = true;
+    G->RNGState = 0x9E3779B9u;
 
-    {
-        winsize windowSize;
-        if (ioctl(1, TIOCGWINSZ, &windowSize) == 0) {
-            if (windowSize.ws_row > 0) G->Rows = windowSize.ws_row;
-            if (windowSize.ws_col > 0) G->Columns = windowSize.ws_col;
-        }
+    if (ioctl(1, TIOCGWINSZ, &windowSize) == 0) {
+        if (windowSize.ws_row > 0) G->ScreenRows = windowSize.ws_row;
+        if (windowSize.ws_col > 0) G->ScreenColumns = windowSize.ws_col;
     }
 
-    if (argc < 2) {
-        G->BufferLength = 0;
-        rebuild_line_offsets();
-    } else {
-        int fd;
-        ssize_t n;
-        off_t size;
-        const char8_t* path = argv[1];
-        size_t pathLength = strlen((const char*) path);
-        size_t i_clr;
+    if (argc < 2) G->Root = 0;
 
-        if (pathLength >= sizeof(G->FileName)) pathLength = sizeof(G->FileName) - 1;
+    else {
+        filePath = argv[1];
+        pathLength = strlen((const char*) filePath);
 
-        for (i_clr = 0; i_clr < sizeof(G->FileName); i_clr++) G->FileName[i_clr] = 0;
+        if (pathLength >= sizeof(G->Filename)) pathLength = sizeof(G->Filename) - 1;
 
-        memcpy(G->FileName, path, pathLength);
+        for (clearIndex = 0; clearIndex < sizeof(G->Filename); clearIndex++) G->Filename[clearIndex] = 0;
+
+        memcpy(G->Filename, filePath, pathLength);
 
         fd = open(argv[1], O_RDONLY, 0);
-        if (fd < 0) {
-            G->BufferLength = 0;
-            rebuild_line_offsets();
-        } else {
-            uint8_t statBuffer[STAT_BUF_SIZE];
-            if (fstat(fd, (stat*) statBuffer) != 0) size = -1;
+        if (fd < 0) G->Root = 0;
+
+        else {
+            if (fstat(fd, (stat*) statBuffer) != 0) fileSize = -1;
+
             else {
-                off_t* size_ptr = (off_t*) (statBuffer + STAT_SIZE_OFFSET);
-                size = *size_ptr;
+                sizePointer = (off_t*) (statBuffer + STAT_SIZE_OFFSET);
+                fileSize = *sizePointer;
             }
 
-            if (size > 0) {
-                size_t total = 0;
-                ensure_buffer_capacity((size_t) size);
-                while (total < (size_t) size) {
-                    n = read(fd, G->Buffer + total, (size_t) size - total);
-                    if (n <= 0) break;
+            if (fileSize > 0) {
+                totalBytesRead = 0;
 
-                    total += (size_t) n;
+                G->Buffer = (char8_t*) malloc((size_t) fileSize);
+                while (totalBytesRead < (size_t) fileSize) {
+                    readBytesCount = read(fd, G->Buffer + totalBytesRead, (size_t) fileSize - totalBytesRead);
+                    if (readBytesCount <= 0) break;
+
+                    totalBytesRead += (size_t) readBytesCount;
                 }
 
-                G->BufferLength = total;
-            }
+                G->Length = totalBytesRead;
+                pt_build_index();
+                G->Root = (G->Length > 0) ? pn_create(PIECE_SOURCE_ORIGINAL, 0, G->Length, G->NewlineCount, 0, 0, rng_next()) : 0;
+            } else G->Root = 0;
 
             close(fd);
-            rebuild_line_offsets();
 
             G->Dirty = false;
         }
     }
 
-    {
-        termios settings;
-        tcflag_t mask;
-        tcgetattr(0, &G->OriginalTermios);
-        settings = G->OriginalTermios;
-        mask = T_ICANON | T_ECHO | T_ISIG;
-        settings.c_lflag &= ~mask;
-        settings.c_cc[T_VMIN] = 1;
-        settings.c_cc[T_VTIME] = 0;
-        tcsetattr(0, TCSANOW, &settings);
-    }
+    tcgetattr(0, &G->Termios);
+    settings = G->Termios;
+    terminalMask = TERMINAL_FLAG_CANONICAL_MODE | TERMINAL_FLAG_ECHO | TERMINAL_FLAG_SIGNAL;
+    settings.c_lflag &= ~terminalMask;
+    settings.c_cc[TERMINAL_INDEX_VMIN] = 1;
+    settings.c_cc[TERMINAL_INDEX_VTIME] = 0;
+    tcsetattr(0, TCSANOW, &settings);
 
-    output_csi("2J");
+    seqout("2J");
     render();
 
     while (G->Running) {
-        ssize_t n;
-
-        if (G->HasPushback) {
-            byte = G->Pushback;
-            G->HasPushback = false;
+        if (G->Pushback) {
+            inputByte = G->Character;
+            G->Pushback = false;
         } else {
-            char8_t rawByte;
-            n = read(0, &rawByte, 1);
-            if (n <= 0) break;
-            byte = rawByte;
+            readBytesCount = read(0, &rawInputByte, 1);
+            if (readBytesCount <= 0) break;
+            inputByte = rawInputByte;
         }
 
-        if (byte == 0x1b && input_ready(20)) {
-            char8_t next;
-            bool isNavKey = false;
+        if (inputByte == 0x1b && ready(20)) {
+            isNavigationKey = false;
 
-            n = read(0, &next, 1);
-            if (n > 0 && next == '[' && input_ready(20)) {
-                char8_t code;
-                n = read(0, &code, 1);
-                if (n > 0) {
-                    switch (code) {
-                        case 'A': byte = 'k'; isNavKey = true; break;
-                        case 'B': byte = 'j'; isNavKey = true; break;
-                        case 'C': byte = 'l'; isNavKey = true; break;
-                        case 'D': byte = 'h'; isNavKey = true; break;
-                        case 'H': byte = '0'; isNavKey = true; break;
-                        case 'F': byte = '$'; isNavKey = true; break;
+            readBytesCount = read(0, &nextCharacter, 1);
+            if (readBytesCount > 0 && nextCharacter == '[' && ready(20)) {
+                readBytesCount = read(0, &keyCode, 1);
+                if (readBytesCount > 0) {
+                    switch (keyCode) {
+                        case 'A': inputByte = 'k'; isNavigationKey = true; break;
+                        case 'B': inputByte = 'j'; isNavigationKey = true; break;
+                        case 'C': inputByte = 'l'; isNavigationKey = true; break;
+                        case 'D': inputByte = 'h'; isNavigationKey = true; break;
+                        case 'H': inputByte = '0'; isNavigationKey = true; break;
+                        case 'F': inputByte = '$'; isNavigationKey = true; break;
 
                         case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': {
-                            if (input_ready(20)) {
-                                char8_t tilde;
-                                n = read(0, &tilde, 1);
-                                if (n > 0) {
-                                    if (tilde == '~') {
-                                        switch (code) {
-                                            case '1': case '7': byte = '0'; isNavKey = true; break;
-                                            case '4': case '8': byte = '$'; isNavKey = true; break;
-                                            case '2': byte = KEY_INSERT; isNavKey = true; break;
-                                            case '3': byte = 'x'; isNavKey = true; break;
-                                            case '5': byte = 0x02; isNavKey = true; break;
-                                            case '6': byte = 0x06; isNavKey = true; break;
+                            if (ready(20)) {
+                                readBytesCount = read(0, &tildeCharacter, 1);
+                                if (readBytesCount > 0) {
+                                    if (tildeCharacter == '~') {
+                                        switch (keyCode) {
+                                            case '1': case '7': inputByte = '0'; isNavigationKey = true; break;
+                                            case '4': case '8': inputByte = '$'; isNavigationKey = true; break;
+                                            case '2': inputByte = KEY_INSERT; isNavigationKey = true; break;
+                                            case '3': inputByte = 'x'; isNavigationKey = true; break;
+                                            case '5': inputByte = 0x02; isNavigationKey = true; break;
+                                            case '6': inputByte = 0x06; isNavigationKey = true; break;
+
                                             default: break;
                                         }
                                     } else {
-                                        // Sequence has modifiers (e.g. ESC [ 3 ; 5 ~)
-                                        // Drain remaining parameter/modifier bytes until terminating byte (0x40 - 0x7E)
-                                        char8_t drain = tilde;
-                                        while ((drain < 0x40 || drain > 0x7E) && input_ready(20)) {
-                                            if (read(0, &drain, 1) <= 0) break;
-                                        }
+                                        drainByte = tildeCharacter;
+                                        while ((drainByte < 0x40 || drainByte > 0x7E) && ready(20)) if (read(0, &drainByte, 1) <= 0) break;
                                     }
                                 }
-                            }
-                            break;
+                            } break;
                         }
 
                         default: break;
                     }
                 } else {
-                    G->Pushback = next;
-                    G->HasPushback = true;
+                    G->Character = nextCharacter;
+                    G->Pushback = true;
 
-                    byte = 0x1b;
+                    inputByte = 0x1b;
                 }
             }
 
-            if (isNavKey) {
-                if (byte == KEY_INSERT) {
-                    if (G->Mode == NORMAL_MODE || G->Mode == INSERT_MODE) {
-                        if (G->Mode == INSERT_MODE) {
-                            if (G->Column > 0) {
-                                size_t start = G->LineOffset[G->Row];
-                                G->Column--;
-                                while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
+            if (isNavigationKey) {
+                if (inputByte == KEY_INSERT) {
+                    if (G->CurrentMode == EDITOR_MODE_NORMAL || G->CurrentMode == EDITOR_MODE_INSERT) {
+                        if (G->CurrentMode == EDITOR_MODE_INSERT) {
+                            if (G->CursorColumn > 0) {
+                                startOffset = pt_line_offset(G->CursorRow);
+                                G->CursorColumn--;
+                                while (G->CursorColumn > 0 && (pt_character_at(startOffset + G->CursorColumn) & 0xC0) == 0x80) G->CursorColumn--;
                             }
-                            G->Mode = NORMAL_MODE;
-                        } else {
-                            G->Mode = INSERT_MODE;
-                        }
+
+                            G->CurrentMode = EDITOR_MODE_NORMAL;
+                            G->Undo = false;
+                        } else G->CurrentMode = EDITOR_MODE_INSERT;
+
                         clamp_column();
-                        adjust_scroll();
+                        adjscr();
                     }
                 } else {
-                    switch (G->Mode) {
-                        case NORMAL_MODE:
-                        case INSERT_MODE: {
-                            if (byte == 'x') {
-                                delete_char_at_cursor();
-                            } else {
-                                move_cursor(byte);
-                            }
+                    switch (G->CurrentMode) {
+                        case EDITOR_MODE_NORMAL: case EDITOR_MODE_INSERT: {
+                            if (inputByte == 'x') delete_char_at_cursor();
+                            else movcur(inputByte);
                             clamp_column();
-                            adjust_scroll();
+                            adjscr();
 
                             break;
                         }
@@ -446,387 +304,396 @@ ABI int main(int argc, char* argv[]) {
                     }
                 }
 
-                render(); continue;
+                render();
+
+                continue;
             }
 
-            if (byte == 0x1b) switch (G->Mode) {
-                case INSERT_MODE: {
-                    if (G->Column > 0) {
-                        size_t start = G->LineOffset[G->Row];
-                        G->Column--;
-                        while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
+            if (inputByte == 0x1b) {
+                switch (G->CurrentMode) {
+                    case EDITOR_MODE_INSERT: {
+                        if (G->CursorColumn > 0) {
+                            startOffset = pt_line_offset(G->CursorRow);
+                            G->CursorColumn--;
+                            while (G->CursorColumn > 0 && (pt_character_at(startOffset + G->CursorColumn) & 0xC0) == 0x80) G->CursorColumn--;
+                        }
+
+                        G->CurrentMode = EDITOR_MODE_NORMAL;
+                        G->Undo = false;
+
+                        switch (G->CurrentMode) {
+                            case EDITOR_MODE_NORMAL: clamp_column(); break;
+
+                            default: break;
+                        }
+
+                        adjscr();
+
+                        break;
                     }
 
-                    G->Mode = NORMAL_MODE;
+                    case EDITOR_MODE_COMMAND: {
+                        G->CurrentMode = EDITOR_MODE_NORMAL;
+                        G->CommandLineLength = 0;
 
-                    switch (G->Mode) {
-                        case NORMAL_MODE: clamp_column(); break;
-
-                        default: break;
+                        break;
                     }
 
-                    adjust_scroll(); break;
+                    default: break;
                 }
-
-                case COMMAND_MODE: G->Mode = NORMAL_MODE; G->CommandLineLength = 0; break;
-
-                default: break;
             }
 
-            render(); continue;
+            render();
+
+            continue;
         }
 
-        switch (G->Mode) {
-            case NORMAL_MODE: {
+        switch (G->CurrentMode) {
+            case EDITOR_MODE_NORMAL: {
                 G->StatusLength = 0;
 
-                switch (G->Pending) {
+                switch (G->Lead) {
                     case 'd': {
-                        G->Pending = 0;
-                        if (byte != 'd') break;
+                        G->Lead = 0;
+                        if (inputByte != 'd') break;
 
-                        if (G->Row < G->LineCount) {
-                            size_t start = G->LineOffset[G->Row];
-                            size_t end = (G->Row + 1 < G->LineCount) ? G->LineOffset[G->Row + 1] : G->BufferLength;
-                            size_t length = end - start;
+                        if (G->CursorRow < ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1)) {
+                            startOffset = pt_line_offset(G->CursorRow);
+                            endOffset = (G->CursorRow + 1 < ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1)) ? pt_line_offset(G->CursorRow + 1) : (G->Root ? G->Root->SubtreeLength : 0);
+                            len = endOffset - startOffset;
 
-                            if (length > 0) {
-                                size_t count_del = G->BufferLength - end;
-                                memmove(G->Buffer + start, G->Buffer + end, count_del);
-
-                                G->BufferLength -= length;
-                                rebuild_line_offsets();
+                            if (len > 0) {
+                                undo_begin_edit();
+                                pt_delete_range(startOffset, len);
+                                G->Undo = false;
 
                                 G->Dirty = true;
                             }
                         }
 
-                        if (G->Row >= G->LineCount && G->LineCount > 0) G->Row = G->LineCount - 1;
+                        if (G->CursorRow >= ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1) && ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1) > 0) G->CursorRow = ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1) - 1;
 
                         break;
                     }
 
                     case 'g': {
-                        G->Pending = 0;
-                        if (byte == 'g') {
-                            G->Row = 0;
-                            G->Column = 0;
-                            G->Top = 0;
-                        }
-
-                        break;
+                        G->Lead = 0;
+                        if (inputByte == 'g') {
+                            G->CursorRow = 0;
+                            G->CursorColumn = 0;
+                            G->TopLineIndex = 0;
+                        } break;
                     }
 
                     default: {
-                        switch (byte) {
-                            case 'h': move_cursor('h'); break;
-                            case 'l': move_cursor('l'); break;
-                            case 'j': move_cursor('j'); break;
-                            case 'k': move_cursor('k'); break;
-                            case '0': move_cursor('0'); break;
-                            case '$': move_cursor('$'); break;
-                            case 'G': if (G->LineCount > 0) G->Row = G->LineCount - 1; break;
-                            case 'g': G->Pending = 'g'; break;
-                            case 'i': G->Mode = INSERT_MODE; break;
+                        switch (inputByte) {
+                            case 'h': movcur('h'); break;
+                            case 'l': movcur('l'); break;
+                            case 'j': movcur('j'); break;
+                            case 'k': movcur('k'); break;
+                            case '0': movcur('0'); break;
+                            case '$': movcur('$'); break;
+                            case 'G': if (((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1) > 0) G->CursorRow = ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1) - 1; break;
+                            case 'g': G->Lead = 'g'; break;
+                            case 'i': G->CurrentMode = EDITOR_MODE_INSERT; break;
                             case 'a': {
-                                size_t len = line_length(G->Row);
-                                G->Mode = INSERT_MODE;
+                                len = linelen(G->CursorRow);
+                                G->CurrentMode = EDITOR_MODE_INSERT;
                                 if (len > 0) {
-                                    size_t start = G->LineOffset[G->Row];
-                                    size_t cLen = utf8_char_length(G->Buffer[start + G->Column]);
-                                    G->Column += cLen;
-                                }
-                                break;
+                                    startOffset = pt_line_offset(G->CursorRow);
+                                    characterLength = utf8clen(pt_character_at(startOffset + G->CursorColumn));
+                                    G->CursorColumn += characterLength;
+                                } break;
                             }
-                            case 'A': G->Mode = INSERT_MODE; G->Column = line_length(G->Row); break;
-                            case 'I': G->Column = 0; G->Mode = INSERT_MODE; break;
+
+                            case 'A': G->CurrentMode = EDITOR_MODE_INSERT; G->CursorColumn = linelen(G->CursorRow); break;
+                            case 'I': G->CursorColumn = 0; G->CurrentMode = EDITOR_MODE_INSERT; break;
 
                             case 'o': {
-                                size_t offset = G->LineOffset[G->Row] + line_length(G->Row);
-                                if (offset < G->BufferLength && G->Buffer[offset] == '\n') offset++;
-                                buffer_insert(offset, '\n');
-                                G->Row++;
-                                G->Column = 0;
-                                G->Mode = INSERT_MODE;
+                                offset = pt_line_offset(G->CursorRow) + linelen(G->CursorRow);
+                                if (offset < (G->Root ? G->Root->SubtreeLength : 0) && pt_character_at(offset) == '\n') offset++;
+                                insbuf(offset, '\n');
+                                G->CursorRow++;
+                                G->CursorColumn = 0;
+                                G->CurrentMode = EDITOR_MODE_INSERT;
 
                                 break;
                             }
 
                             case 'O': {
-                                buffer_insert(G->LineOffset[G->Row], '\n');
-                                G->Column = 0;
-                                G->Mode = INSERT_MODE;
+                                insbuf(pt_line_offset(G->CursorRow), '\n');
+                                G->CursorColumn = 0;
+                                G->CurrentMode = EDITOR_MODE_INSERT;
 
                                 break;
                             }
 
                             case 'x': {
                                 delete_char_at_cursor();
+
                                 break;
                             }
-                            case 'd': G->Pending = 'd'; break;
+
+                            case 'd': G->Lead = 'd'; break;
+
+                            case 'u': undo(); break;
+                            case 0x12: redo(); break;
 
                             case ':': {
-                                size_t i_cmd;
-
-                                G->Mode = COMMAND_MODE;
+                                G->CurrentMode = EDITOR_MODE_COMMAND;
                                 G->CommandLineLength = 0;
 
-                                for (i_cmd = 0; i_cmd < sizeof(G->CommandLine); i_cmd++) G->CommandLine[i_cmd] = 0;
+                                for (commandClearIndex = 0; commandClearIndex < sizeof(G->CommandLineBuffer); commandClearIndex++) G->CommandLineBuffer[commandClearIndex] = 0;
 
                                 break;
                             }
 
-                            case 0x06: move_cursor(0x06); break;
-                            case 0x02: move_cursor(0x02); break;
+                            case 0x06: movcur(0x06); break;
+                            case 0x02: movcur(0x02); break;
 
                             default: break;
-                        }
-
-                        break;
+                        } break;
                     }
                 }
 
-                switch (G->Mode) {
-                    case NORMAL_MODE: clamp_column(); break;
+                switch (G->CurrentMode) {
+                    case EDITOR_MODE_NORMAL: clamp_column(); break;
 
                     default: break;
                 }
 
-                adjust_scroll(); break;
+                adjscr();
+
+                break;
             }
 
-            case INSERT_MODE: {
-                switch (byte) {
+            case EDITOR_MODE_INSERT: {
+                switch (inputByte) {
                     case 0x1b: {
-                        if (G->Column > 0) {
-                            size_t start = G->LineOffset[G->Row];
-                            G->Column--;
-                            while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
+                        if (G->CursorColumn > 0) {
+                            startOffset = pt_line_offset(G->CursorRow);
+                            G->CursorColumn--;
+                            while (G->CursorColumn > 0 && (pt_character_at(startOffset + G->CursorColumn) & 0xC0) == 0x80) G->CursorColumn--;
                         }
-                        G->Mode = NORMAL_MODE;
+
+                        G->CurrentMode = EDITOR_MODE_NORMAL;
+                        G->Undo = false;
+
                         break;
                     }
 
-                    case 127:
-                    case 8: {
-                        size_t bytesToDelete;
-                        size_t k;
+                    case 127: case 8: {
+                        if (offsetcur() > 0) {
+                            isMergingUp = (G->CursorColumn == 0 && G->CursorRow > 0);
+                            joinColumn = isMergingUp ? linelen(G->CursorRow - 1) : 0;
 
-                        if (cursor_offset() > 0) {
-                            bool mergingUp = (G->Column == 0 && G->Row > 0);
-                            size_t joinColumn = mergingUp ? line_length(G->Row - 1) : 0;
+                            if (isMergingUp) {
+                                delbuf(offsetcur() - 1);
+                                G->CursorRow--;
+                                G->CursorColumn = joinColumn;
+                            } else if (G->CursorColumn > 0) {
+                                startOffset = pt_line_offset(G->CursorRow);
+                                oldColumn = G->CursorColumn;
+                                G->CursorColumn--;
+                                while (G->CursorColumn > 0 && (pt_character_at(startOffset + G->CursorColumn) & 0xC0) == 0x80) G->CursorColumn--;
 
-                            if (mergingUp) {
-                                buffer_delete(cursor_offset() - 1);
-                                G->Row--;
-                                G->Column = joinColumn;
-                            } else if (G->Column > 0) {
-                                size_t start = G->LineOffset[G->Row];
-                                size_t oldCol = G->Column;
-                                G->Column--;
-                                while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
-
-                                bytesToDelete = oldCol - G->Column;
-                                for (k = 0; k < bytesToDelete; k++) buffer_delete(start + G->Column);
+                                bytesToDelete = oldColumn - G->CursorColumn;
+                                for (deleteIndex = 0; deleteIndex < bytesToDelete; deleteIndex++) delbuf(startOffset + G->CursorColumn);
                             }
-                        }
-
-                        break;
+                        } break;
                     }
 
-                    case '\n':
-                    case '\r': {
-                        buffer_insert(cursor_offset(), '\n');
+                    case '\n': case '\r': {
+                        insbuf(offsetcur(), '\n');
 
-                        G->Row++;
-                        G->Column = 0;
+                        G->CursorRow++;
+                        G->CursorColumn = 0;
 
                         break;
                     }
 
                     case '\t': {
-                        buffer_insert(cursor_offset(), '\t');
-                        G->Column++;
+                        insbuf(offsetcur(), '\t');
+                        G->CursorColumn++;
 
                         break;
                     }
 
-                    default:
-                        if (byte >= 32 && byte < 0x100) {
-                            buffer_insert(cursor_offset(), (char8_t) byte);
-                            G->Column++;
-                        }
-                        break;
+                    default: {
+                        if (inputByte >= 32 && inputByte < 0x100) {
+                            insbuf(offsetcur(), (char8_t) inputByte);
+                            G->CursorColumn++;
+                        } break;
+                    }
                 }
 
-                switch (G->Mode) {
-                    case NORMAL_MODE: clamp_column(); break;
+                switch (G->CurrentMode) {
+                    case EDITOR_MODE_NORMAL: clamp_column(); break;
 
                     default: break;
                 }
 
-                adjust_scroll(); break;
+                adjscr();
+
+                break;
             }
 
-            case COMMAND_MODE: {
-                switch (byte) {
-                    case 0x1b: G->Mode = NORMAL_MODE; G->CommandLineLength = 0; break;
+            case EDITOR_MODE_COMMAND: {
+                switch (inputByte) {
+                    case 0x1b: {
+                        G->CurrentMode = EDITOR_MODE_NORMAL;
+                        G->CommandLineLength = 0;
 
-                    case '\n':
-                    case '\r': {
-                        char8_t* command;
+                        break;
+                    }
 
-                        G->CommandLine[G->CommandLineLength] = '\0';
-                        command = G->CommandLine;
+                    case '\n': case '\r': {
+                        G->CommandLineBuffer[G->CommandLineLength] = '\0';
+                        commandString = G->CommandLineBuffer;
 
-                        switch (command[0]) {
+                        switch (commandString[0]) {
                             case 'q': {
-                                switch (command[1]) {
+                                switch (commandString[1]) {
                                     case '\0': {
-                                        if (G->Dirty && !G->ForceQuit) set_status("Unsaved changes, :q! to force.");
+                                        if (G->Dirty && !G->Force) status("Unsaved changes, :q! to force.");
 
                                         else G->Running = false; break;
                                     }
 
                                     case '!': {
-                                        switch (command[2]) {
-                                            case '\0': G->Running = false; break;
+                                        switch (commandString[2]) {
+                                            case '\0': {
+                                                G->Running = false;
 
-                                            default: set_status("Unknown command."); break;
-                                        }
+                                                break;
+                                            }
 
-                                        break;
+                                            default: status("Unknown command."); break;
+                                        } break;
                                     }
 
-                                    default: set_status("Unknown command."); break;
-                                }
-
-                                break;
+                                    default: status("Unknown command."); break;
+                                } break;
                             }
 
                             case 'w': {
-                                switch (command[1]) {
-                                    case '\0':
-                                    case '!': {
-                                        switch (command[command[1] == '!' ? 2 : 1]) {
-                                            case '\0': save_file(); break;
+                                switch (commandString[1]) {
+                                    case '\0': case '!': {
+                                        switch (commandString[commandString[1] == '!' ? 2 : 1]) {
+                                            case '\0': save(); break;
 
-                                            default: set_status("Unknown command."); break;
-                                        }
-
-                                        break;
+                                            default: status("Unknown command."); break;
+                                        } break;
                                     }
 
                                     case 'q': {
-                                        switch (command[2]) {
+                                        switch (commandString[2]) {
                                             case '\0': {
-                                                save_file();
+                                                save();
 
                                                 G->Running = false; break;
                                             }
 
                                             case '!': {
-                                                switch (command[3]) {
+                                                switch (commandString[3]) {
                                                     case '\0': {
-                                                        save_file();
+                                                        save();
 
                                                         G->Running = false; break;
                                                     }
 
-                                                    default: set_status("Unknown command."); break;
-                                                }
-
-                                                break;
+                                                    default: status("Unknown command."); break;
+                                                } break;
                                             }
+
                                             case ' ': {
-                                                switch (command[3]) {
-                                                    case '\0': set_status("Unknown command."); break;
+                                                switch (commandString[3]) {
+                                                    case '\0': status("Unknown command."); break;
+
                                                     default: {
-                                                        size_t length = strlen((const char*) (command + 3));
+                                                        nameLength = strlen((const char*) (commandString + 3));
 
-                                                        if (length >= sizeof(G->FileName)) length = sizeof(G->FileName) - 1;
-                                                        memcpy(G->FileName, command + 3, length);
-                                                        G->FileName[length] = '\0';
+                                                        if (nameLength >= sizeof(G->Filename)) nameLength = sizeof(G->Filename) - 1;
+                                                        memcpy(G->Filename, commandString + 3, nameLength);
+                                                        G->Filename[nameLength] = '\0';
 
-                                                        save_file();
-                                                        G->Running = false; break;
+                                                        save();
+                                                        G->Running = false;
+
+                                                        break;
                                                     }
-                                                }
-
-                                                break;
+                                                } break;
                                             }
 
-                                            default: set_status("Unknown command."); break;
-                                        }
-
-                                        break;
+                                            default: status("Unknown command."); break;
+                                        } break;
                                     }
+
                                     case ' ': {
-                                        switch (command[2]) {
-                                            case '\0': set_status("Unknown command."); break;
+                                        switch (commandString[2]) {
+                                            case '\0': status("Unknown command."); break;
+
                                             default: {
-                                                size_t length = strlen((const char*) (command + 2));
+                                                nameLength = strlen((const char*) (commandString + 2));
 
-                                                if (length >= sizeof(G->FileName)) length = sizeof(G->FileName) - 1;
-                                                memcpy(G->FileName, command + 2, length);
-                                                G->FileName[length] = '\0';
+                                                if (nameLength >= sizeof(G->Filename)) nameLength = sizeof(G->Filename) - 1;
+                                                memcpy(G->Filename, commandString + 2, nameLength);
+                                                G->Filename[nameLength] = '\0';
 
-                                                save_file(); break;
+                                                save(); break;
                                             }
-                                        }
-
-                                        break;
+                                        } break;
                                     }
 
-                                    default: set_status("Unknown command."); break;
-                                }
-
-                                break;
+                                    default: status("Unknown command."); break;
+                                } break;
                             }
 
                             case 'x': {
-                                switch (command[1]) {
+                                switch (commandString[1]) {
                                     case '\0': {
-                                        save_file();
+                                        save();
 
                                         G->Running = false; break;
                                     }
 
                                     case '!': {
-                                        switch (command[2]) {
+                                        switch (commandString[2]) {
                                             case '\0': {
-                                                save_file();
+                                                save();
 
                                                 G->Running = false; break;
                                             }
 
-                                            default: set_status("Unknown command."); break;
-                                        }
-
-                                        break;
+                                            default: status("Unknown command."); break;
+                                        } break;
                                     }
 
-                                    default: set_status("Unknown command."); break;
-                                }
-
-                                break;
+                                    default: status("Unknown command."); break;
+                                } break;
                             }
 
-                            default: set_status("Unknown command."); break;
+                            default: status("Unknown command."); break;
                         }
 
-                        G->Mode = NORMAL_MODE;
-                        G->CommandLineLength = 0; break;
+                        G->CurrentMode = EDITOR_MODE_NORMAL;
+                        G->CommandLineLength = 0;
+
+                        break;
                     }
 
-                    case 127:
-                    case 8: if (G->CommandLineLength > 0) G->CommandLineLength--; break;
+                    case 127: case 8: {
+                        if (G->CommandLineLength > 0) G->CommandLineLength--;
 
-                    default: if (byte >= 32 && byte < 127 && G->CommandLineLength + 1 < sizeof(G->CommandLine)) G->CommandLine[G->CommandLineLength++] = (char8_t) byte; break;
-                }
+                        break;
+                    }
 
-                break;
+                    default: {
+                        if (inputByte >= 32 && inputByte < 127 && G->CommandLineLength + 1 < sizeof(G->CommandLineBuffer)) G->CommandLineBuffer[G->CommandLineLength++] = (char8_t) inputByte;
+
+                        break;
+                    }
+                } break;
             }
 
             default: break;
@@ -835,166 +702,639 @@ ABI int main(int argc, char* argv[]) {
         render();
     }
 
-    tcsetattr(0, TCSANOW, &G->OriginalTermios);
-    output_csi("?7h");
-    output_csi("2J");
-    cursor_goto(0, 0);
-    output_flush();
+    tcsetattr(0, TCSANOW, &G->Termios);
+    seqout("?7h");
+    seqout("2J");
+    setcur(0, 0);
+    oflush();
 
     return 0;
 }
 
-static bool input_ready(int timeoutMilliseconds) {
-    pollfd descriptor;
-    descriptor.fd = 0;
-    descriptor.events = POLLIN;
-    descriptor.revents = 0;
+static ABI bool ready(int ms) {
+    pollfd pollDescriptor;
 
-    return poll(&descriptor, 1, timeoutMilliseconds) > 0;
+    pollDescriptor.fd = 0;
+    pollDescriptor.events = POLLIN;
+    pollDescriptor.revents = 0;
+
+    return poll(&pollDescriptor, 1, ms) > 0;
 }
 
-static char8_t* u64toa(uint64_t value, char8_t* buffer) {
-    char8_t* p = buffer + 20;
+static ABI char8_t* ull2s(uint64_t value, char8_t* buffer) {
+    char8_t* pointer;
 
-    *p = '\0';
+    pointer = buffer + 20;
+
+    *pointer = '\0';
     if (value == 0) {
-        *--p = '0';
+        *--pointer = '0';
 
-        return p;
+        return pointer;
     }
 
-    while (value) {
-        *--p = '0' + value % 10;
+    while (value > 0) {
+        *--pointer = (char8_t) ('0' + (value % 10));
+
         value /= 10;
     }
 
-    return p;
+    return pointer;
 }
 
-static void ensure_buffer_capacity(size_t needed) {
+static ABI void acap(size_t neededCapacity) {
     size_t newCapacity;
 
-    if (needed <= G->BufferCapacity) return;
+    char8_t* newBuffer;
 
-    newCapacity = G->BufferCapacity ? G->BufferCapacity : 4096;
-    while (newCapacity < needed) newCapacity *= 2;
+    if (neededCapacity <= G->AddCapacity) return;
 
-    G->Buffer = (char8_t*) realloc(G->Buffer, newCapacity);
-    G->BufferCapacity = newCapacity;
-}
+    newCapacity = G->AddCapacity ? G->AddCapacity : 4096;
+    while (newCapacity < neededCapacity) newCapacity *= 2;
 
-static void ensure_line_capacity(size_t needed) {
-    size_t newCapacity;
-    if (needed <= G->LineCapacity) return;
-
-    newCapacity = G->LineCapacity ? G->LineCapacity : 256;
-    while (newCapacity < needed) newCapacity *= 2;
-
-    G->LineOffset = (size_t*) realloc(G->LineOffset, newCapacity * sizeof(size_t));
-    G->LineCapacity = newCapacity;
-}
-
-static void rebuild_line_offsets(void) {
-    size_t i;
-
-    G->LineCount = 0;
-    ensure_line_capacity(1);
-
-    G->LineOffset[G->LineCount++] = 0;
-    for (i = 0; i < G->BufferLength; i++) {
-        if (G->Buffer[i] != '\n') continue;
-        if (i + 1 <= G->BufferLength) {
-            ensure_line_capacity(G->LineCount + 1);
-
-            G->LineOffset[G->LineCount++] = i + 1;
-        }
+    newBuffer = (char8_t*) realloc(G->AddBuffer, newCapacity);
+    if (newBuffer) {
+        G->AddBuffer = newBuffer;
+        G->AddCapacity = newCapacity;
     }
 }
 
-static size_t line_length(size_t line) {
-    size_t start, end;
-    if (line >= G->LineCount) return 0;
+static ABI INLINE uint32_t rng_next(void) {
+    uint32_t stateValue;
 
-    start = G->LineOffset[line];
-    end = (line + 1 < G->LineCount) ? G->LineOffset[line + 1] - 1 : G->BufferLength;
+    stateValue = G->RNGState;
+    stateValue ^= stateValue << 13;
+    stateValue ^= stateValue >> 17;
+    stateValue ^= stateValue << 5;
+    G->RNGState = stateValue;
 
-    return (end > start) ? (end - start) : 0;
+    return stateValue;
 }
 
-static size_t line_layout(size_t line, size_t stopByte, size_t *stopRow, size_t *stopCol) {
-    size_t start, length, columns, byteOfs, row, visCol;
-    bool stopped;
+static ABI PN* pn_create(PS Source, size_t startOffset, size_t len, size_t lineFeeds, PN* leftChild, PN* rightChild, uint32_t Priority) {
+    PN* Node;
 
-    if (line >= G->LineCount) {
-        if (stopRow) *stopRow = 0;
-        if (stopCol) *stopCol = 0;
+    Node = (PN*) malloc(sizeof(PN));
+
+    Node->Source = Source;
+    Node->StartOffset = startOffset;
+    Node->Length = len;
+    Node->LineFeeds = lineFeeds;
+    Node->LeftChild = leftChild;
+    Node->RightChild = rightChild;
+    Node->Priority = Priority;
+    Node->ReferenceCount = 1;
+    Node->pad = 0;
+
+    Node->SubtreeLength = len + (leftChild ? leftChild->SubtreeLength : 0) + (rightChild ? rightChild->SubtreeLength : 0);
+    Node->SubtreeLineFeeds = lineFeeds + (leftChild ? leftChild->SubtreeLineFeeds : 0) + (rightChild ? rightChild->SubtreeLineFeeds : 0);
+
+    return Node;
+}
+
+static ABI INLINE PN* pn_retain(PN* Node) {
+    if (Node) Node->ReferenceCount++;
+
+    return Node;
+}
+
+static ABI void pn_release(PN* Node) {
+    if (!Node) return;
+
+    Node->ReferenceCount--;
+    if (Node->ReferenceCount <= 0) {
+        pn_release(Node->LeftChild);
+        pn_release(Node->RightChild);
+
+        free(Node);
+    }
+}
+
+static ABI PN* pn_merge(PN* leftNode, PN* rightNode) {
+    PN* newRightChild, *newLeftChild;
+
+    if (!leftNode) return pn_retain(rightNode);
+    if (!rightNode) return pn_retain(leftNode);
+
+    if (leftNode->Priority > rightNode->Priority) {
+        newRightChild = pn_merge(leftNode->RightChild, rightNode);
+
+        return pn_create(leftNode->Source, leftNode->StartOffset, leftNode->Length, leftNode->LineFeeds, pn_retain(leftNode->LeftChild), newRightChild, leftNode->Priority);
+    } else {
+        newLeftChild = pn_merge(leftNode, rightNode->LeftChild);
+
+        return pn_create(rightNode->Source, rightNode->StartOffset, rightNode->Length, rightNode->LineFeeds, newLeftChild, pn_retain(rightNode->RightChild), rightNode->Priority);
+    }
+}
+
+static ABI SP pn_split(PN* Node, size_t splitKey) {
+    SP splitResult, subtreeSplitResult;
+    size_t leftSubtreeLength, offsetInPiece, leftLineFeeds, rightLineFeeds;
+
+    PN* newRightNode, *newLeftNode;
+
+    if (!Node) {
+        splitResult.left_node = 0;
+        splitResult.right_node = 0;
+
+        return splitResult;
+    }
+
+    leftSubtreeLength = Node->LeftChild ? Node->LeftChild->SubtreeLength : 0;
+
+    if (splitKey <= leftSubtreeLength) {
+        subtreeSplitResult = pn_split(Node->LeftChild, splitKey);
+        newRightNode = pn_create(Node->Source, Node->StartOffset, Node->Length, Node->LineFeeds, subtreeSplitResult.right_node, pn_retain(Node->RightChild), Node->Priority);
+
+        splitResult.left_node = subtreeSplitResult.left_node;
+        splitResult.right_node = newRightNode;
+
+        return splitResult;
+    } else if (splitKey >= leftSubtreeLength + Node->Length) {
+        subtreeSplitResult = pn_split(Node->RightChild, splitKey - leftSubtreeLength - Node->Length);
+        newLeftNode = pn_create(Node->Source, Node->StartOffset, Node->Length, Node->LineFeeds, pn_retain(Node->LeftChild), subtreeSplitResult.left_node, Node->Priority);
+
+        splitResult.left_node = newLeftNode;
+        splitResult.right_node = subtreeSplitResult.right_node;
+
+        return splitResult;
+    } else {
+        offsetInPiece = splitKey - leftSubtreeLength;
+        leftLineFeeds = cntnl(Node->Source, Node->StartOffset, offsetInPiece);
+        rightLineFeeds = Node->LineFeeds - leftLineFeeds;
+
+        splitResult.left_node = pn_create(Node->Source, Node->StartOffset, offsetInPiece, leftLineFeeds, pn_retain(Node->LeftChild), 0, rng_next());
+        splitResult.right_node = pn_create(Node->Source, Node->StartOffset + offsetInPiece, Node->Length - offsetInPiece, rightLineFeeds, 0, pn_retain(Node->RightChild), rng_next());
+
+        return splitResult;
+    }
+}
+
+static ABI size_t lown(size_t targetValue) {
+    size_t lowerBound, upperBound, middleIndex;
+
+    lowerBound = 0;
+    upperBound = G->NewlineCount;
+
+    while (lowerBound < upperBound) {
+        middleIndex = lowerBound + (upperBound - lowerBound) / 2;
+        if (G->Newlines[middleIndex] < targetValue) lowerBound = middleIndex + 1;
+        else upperBound = middleIndex;
+    }
+
+    return lowerBound;
+}
+
+static ABI size_t cntnl(PS Source, size_t startOffset, size_t len) {
+    size_t startIndex, endIndex, iterationIndex, newlineCount;
+
+    if (len == 0) return 0;
+
+    if (Source == PIECE_SOURCE_ORIGINAL) {
+        startIndex = lown(startOffset);
+        endIndex = lown(startOffset + len);
+
+        return endIndex - startIndex;
+    } else {
+        newlineCount = 0;
+        for (iterationIndex = 0; iterationIndex < len; iterationIndex++) if (G->AddBuffer[startOffset + iterationIndex] == '\n') newlineCount++;
+
+        return newlineCount;
+    }
+}
+
+static ABI size_t findnl(PS Source, size_t startOffset, size_t len, size_t targetNewlineIndex) {
+    size_t lowerBoundIndex, iterationIndex;
+
+    if (Source == PIECE_SOURCE_ORIGINAL) {
+        lowerBoundIndex = lown(startOffset);
+
+        return G->Newlines[lowerBoundIndex + targetNewlineIndex] - startOffset;
+    } else {
+        for (iterationIndex = 0; iterationIndex < len; iterationIndex++) if (G->AddBuffer[startOffset + iterationIndex] == '\n') {
+            if (targetNewlineIndex == 0) return iterationIndex;
+
+            targetNewlineIndex--;
+        }
+
+        return len;
+    }
+}
+
+static ABI PN* pt_locate(size_t offset, size_t* pieceAbsoluteStart, size_t* offsetInPiece) {
+    size_t baseOffset, leftSubtreeLength;
+    PN* currentNode;
+
+    currentNode = G->Root;
+    baseOffset = 0;
+
+    while (currentNode) {
+        leftSubtreeLength = currentNode->LeftChild ? currentNode->LeftChild->SubtreeLength : 0;
+
+        if (offset < leftSubtreeLength) {
+            currentNode = currentNode->LeftChild;
+
+            continue;
+        }
+
+        offset -= leftSubtreeLength;
+        baseOffset += leftSubtreeLength;
+
+        if (offset < currentNode->Length) {
+            *pieceAbsoluteStart = baseOffset;
+            *offsetInPiece = offset;
+
+            return currentNode;
+        }
+
+        offset -= currentNode->Length;
+        baseOffset += currentNode->Length;
+        currentNode = currentNode->RightChild;
+    }
+
+    return 0;
+}
+
+static ABI char8_t pt_character_at(size_t offset) {
+    size_t pieceAbsoluteStart, offsetInPiece;
+    PN* Node;
+    const char8_t* sourceBuffer;
+
+    Node = pt_locate(offset, &pieceAbsoluteStart, &offsetInPiece);
+
+    if (!Node) return 0;
+
+    sourceBuffer = (Node->Source == PIECE_SOURCE_ORIGINAL) ? G->Buffer : G->AddBuffer;
+    return sourceBuffer[Node->StartOffset + offsetInPiece];
+}
+
+static ABI size_t pt_extract(size_t offset, size_t len, char8_t* destinationBuffer, size_t destinationCapacity) {
+    size_t bytesWritten, totalLength, pieceAbsoluteStart, offsetInPiece, availableBytes, requestedBytes, destinationRoom;
+    PN* Node;
+    const char8_t* sourceBuffer;
+
+    bytesWritten = 0;
+    totalLength = (G->Root ? G->Root->SubtreeLength : 0);
+
+    if (offset > totalLength) return 0;
+    if (offset + len > totalLength) len = totalLength - offset;
+
+    while (len > 0 && bytesWritten < destinationCapacity) {
+        Node = pt_locate(offset, &pieceAbsoluteStart, &offsetInPiece);
+
+        if (!Node) break;
+
+        availableBytes = Node->Length - offsetInPiece;
+        requestedBytes = (len < availableBytes) ? len : availableBytes;
+        destinationRoom = destinationCapacity - bytesWritten;
+        if (requestedBytes > destinationRoom) requestedBytes = destinationRoom;
+        if (requestedBytes == 0) break;
+
+        sourceBuffer = (Node->Source == PIECE_SOURCE_ORIGINAL) ? G->Buffer : G->AddBuffer;
+        memcpy(destinationBuffer + bytesWritten, sourceBuffer + Node->StartOffset + offsetInPiece, requestedBytes);
+
+        bytesWritten += requestedBytes;
+        offset += requestedBytes;
+        len -= requestedBytes;
+    }
+
+    return bytesWritten;
+}
+
+static ABI bool pt_offset_of_newline(size_t newlineIndex, size_t* outOffset) {
+    size_t baseOffset, leftSubtreeLineFeeds, leftSubtreeLength;
+    PN* Node;
+
+    Node = G->Root;
+    baseOffset = 0;
+
+    while (Node) {
+        leftSubtreeLineFeeds = Node->LeftChild ? Node->LeftChild->SubtreeLineFeeds : 0;
+        leftSubtreeLength = Node->LeftChild ? Node->LeftChild->SubtreeLength : 0;
+
+        if (newlineIndex < leftSubtreeLineFeeds) {
+            Node = Node->LeftChild;
+
+            continue;
+        }
+
+        newlineIndex -= leftSubtreeLineFeeds;
+        baseOffset += leftSubtreeLength;
+
+        if (newlineIndex < Node->LineFeeds) {
+            *outOffset = baseOffset + findnl(Node->Source, Node->StartOffset, Node->Length, newlineIndex);
+
+            return true;
+        }
+
+        newlineIndex -= Node->LineFeeds;
+        baseOffset += Node->Length;
+
+        Node = Node->RightChild;
+    }
+
+    return false;
+}
+
+static ABI size_t pt_line_offset(size_t lineNumber) {
+    size_t characterOffset;
+
+    if (lineNumber == 0) return 0;
+    if (pt_offset_of_newline(lineNumber - 1, &characterOffset)) return characterOffset + 1;
+
+    return (G->Root ? G->Root->SubtreeLength : 0);
+}
+
+static ABI void pt_insertb(size_t offset, const char8_t* dataBytes, size_t len) {
+    size_t pieceStartOffset, lineFeedCount;
+    SP splitResult;
+    PN* newPieceNode, *mergedNode1, *newRootNode;
+
+    if (len == 0) return;
+
+    acap(G->AddLength + len);
+    memcpy(G->AddBuffer + G->AddLength, dataBytes, len);
+
+    pieceStartOffset = G->AddLength;
+    G->AddLength += len;
+
+    lineFeedCount = cntnl(PIECE_SOURCE_ADD, pieceStartOffset, len);
+    newPieceNode = pn_create(PIECE_SOURCE_ADD, pieceStartOffset, len, lineFeedCount, 0, 0, rng_next());
+
+    splitResult = pn_split(G->Root, offset);
+    mergedNode1 = pn_merge(splitResult.left_node, newPieceNode);
+    newRootNode = pn_merge(mergedNode1, splitResult.right_node);
+
+    pn_release(splitResult.left_node);
+    pn_release(splitResult.right_node);
+    pn_release(newPieceNode);
+    pn_release(mergedNode1);
+
+    pn_release(G->Root);
+
+    G->Root = newRootNode;
+}
+
+static ABI void pt_delete_range(size_t offset, size_t len) {
+    SP splitResult1, splitResult2;
+    PN* newRootNode;
+
+    if (len == 0) return;
+
+    splitResult1 = pn_split(G->Root, offset);
+    splitResult2 = pn_split(splitResult1.right_node, len);
+    newRootNode = pn_merge(splitResult1.left_node, splitResult2.right_node);
+
+    pn_release(splitResult1.left_node);
+    pn_release(splitResult1.right_node);
+    pn_release(splitResult2.left_node);
+    pn_release(splitResult2.right_node);
+
+    pn_release(G->Root);
+
+    G->Root = newRootNode;
+}
+
+static ABI void pt_build_index(void) {
+    size_t iterationIndex, count;
+
+    count = 0;
+    for (iterationIndex = 0; iterationIndex < G->Length; iterationIndex++) if (G->Buffer[iterationIndex] == '\n') count++;
+
+    G->Newlines = count ? (size_t*) malloc(count * sizeof(size_t)) : 0;
+    G->NewlineCount = 0;
+
+    for (iterationIndex = 0; iterationIndex < G->Length; iterationIndex++) if (G->Buffer[iterationIndex] == '\n') G->Newlines[G->NewlineCount++] = iterationIndex;
+}
+
+static ABI void ucap(size_t neededCapacity) {
+    size_t newCapacity;
+    PN** newStack;
+
+    if (neededCapacity <= G->UndoCapacity) return;
+
+    newCapacity = G->UndoCapacity ? G->UndoCapacity : 64;
+    while (newCapacity < neededCapacity) newCapacity *= 2;
+
+    newStack = (PN**) realloc(G->UndoStack, newCapacity * sizeof(PN*));
+    if (newStack) {
+        G->UndoStack = newStack;
+        G->UndoCapacity = newCapacity;
+    }
+}
+
+static ABI void rcap(size_t neededCapacity) {
+    size_t newCapacity;
+    PN** newStack;
+
+    if (neededCapacity <= G->RedoCapacity) return;
+
+    newCapacity = G->RedoCapacity ? G->RedoCapacity : 64;
+    while (newCapacity < neededCapacity) newCapacity *= 2;
+
+    newStack = (PN**) realloc(G->RedoStack, newCapacity * sizeof(PN*));
+    if (newStack) {
+        G->RedoStack = newStack;
+        G->RedoCapacity = newCapacity;
+    }
+}
+
+static ABI void pushu(PN* rootNode) {
+    size_t iterationIndex;
+
+    if (G->UndoCount >= UNDO_HISTORY_LIMIT) {
+        pn_release(G->UndoStack[0]);
+        for (iterationIndex = 1; iterationIndex < G->UndoCount; iterationIndex++) G->UndoStack[iterationIndex - 1] = G->UndoStack[iterationIndex];
+
+        G->UndoCount--;
+    }
+
+    ucap(G->UndoCount + 1);
+    G->UndoStack[G->UndoCount++] = pn_retain(rootNode);
+}
+
+static ABI INLINE PN* popu(void) {
+    if (G->UndoCount == 0) return 0;
+
+    return G->UndoStack[--G->UndoCount];
+}
+
+static ABI void pushr(PN* rootNode) {
+    rcap(G->RedoCount + 1);
+
+    G->RedoStack[G->RedoCount++] = pn_retain(rootNode);
+}
+
+static ABI INLINE PN* popr(void) {
+    if (G->RedoCount == 0) return 0;
+
+    return G->RedoStack[--G->RedoCount];
+}
+
+static ABI void clrr(void) {
+    size_t iterationIndex;
+
+    for (iterationIndex = 0; iterationIndex < G->RedoCount; iterationIndex++) pn_release(G->RedoStack[iterationIndex]);
+
+    G->RedoCount = 0;
+}
+
+static ABI void undo_begin_edit(void) {
+    if (!G->Undo) {
+        pushu(G->Root);
+        clrr();
+
+        G->Undo = true;
+    }
+}
+
+static ABI void fixcur(void) {
+    size_t lineCount;
+
+    lineCount = ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1);
+
+    if (G->CursorRow >= lineCount) G->CursorRow = lineCount - 1;
+
+    clamp_column();
+    adjscr();
+}
+
+static ABI void undo(void) {
+    PN* previousRootNode;
+
+    if (G->UndoCount == 0) {
+        status("Already at oldest change.");
+
+        return;
+    }
+
+    pushr(G->Root);
+
+    previousRootNode = popu();
+    pn_release(G->Root);
+
+    G->Root = previousRootNode;
+    G->Undo = false;
+
+    fixcur();
+    status("Undo.");
+}
+
+static ABI void redo(void) {
+    PN* nextRootNode;
+
+    if (G->RedoCount == 0) {
+        status("Already at newest change.");
+
+        return;
+    }
+
+    pushu(G->Root);
+
+    nextRootNode = popr();
+    pn_release(G->Root);
+
+    G->Root = nextRootNode;
+    G->Undo = false;
+
+    fixcur();
+    status("Redo.");
+}
+
+static ABI size_t linelen(size_t lineNumber) {
+    size_t startOffset, endOffset, totalLength, lineCount;
+
+    lineCount = ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1);
+
+    if (lineNumber >= lineCount) return 0;
+
+    startOffset = pt_line_offset(lineNumber);
+    totalLength = (G->Root ? G->Root->SubtreeLength : 0);
+    endOffset = (lineNumber + 1 < lineCount) ? pt_line_offset(lineNumber + 1) - 1 : totalLength;
+
+    return (endOffset > startOffset) ? (endOffset - startOffset) : 0;
+}
+
+static ABI size_t linelay(size_t lineNumber, size_t stopByteOffset, size_t* stopRowPointer, size_t* stopColumnPointer) {
+    size_t startOffset, lineBytesLength, terminalColumns, byteOffset, rowIndex, visualColumn, scratchLength, tabWidth;
+    bool hasStopped;
+    char8_t c;
+
+    if (lineNumber >= ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1)) {
+        if (stopRowPointer) *stopRowPointer = 0;
+        if (stopColumnPointer) *stopColumnPointer = 0;
+
         return 1;
     }
 
-    start = G->LineOffset[line];
-    length = line_length(line);
-    columns = G->Columns ? G->Columns : 1;
+    startOffset = pt_line_offset(lineNumber);
+    lineBytesLength = linelen(lineNumber);
+    terminalColumns = G->ScreenColumns ? G->ScreenColumns : 1;
 
-    byteOfs = 0;
-    row = 0;
-    visCol = 0;
-    stopped = false;
+    scratchLength = pt_extract(startOffset, lineBytesLength, G->ScratchLineBuffer, sizeof(G->ScratchLineBuffer));
+    if (lineBytesLength > scratchLength) lineBytesLength = scratchLength;
 
-    while (byteOfs < length) {
-        char8_t c = G->Buffer[start + byteOfs];
+    byteOffset = 0;
+    rowIndex = 0;
+    visualColumn = 0;
+    hasStopped = false;
+
+    while (byteOffset < lineBytesLength) {
+        c = G->ScratchLineBuffer[byteOffset];
 
         if (c == '\t') {
-            size_t width = TAB_WIDTH - (visCol % TAB_WIDTH);
+            tabWidth = TABULATION_WIDTH - (visualColumn % TABULATION_WIDTH);
 
-            if (visCol + width > columns && visCol > 0) {
-                row++;
-                visCol = 0;
+            if (visualColumn + tabWidth > terminalColumns && visualColumn > 0) {
+                rowIndex++;
+                visualColumn = 0;
+
                 continue;
             }
 
-            if (!stopped && byteOfs >= stopByte) {
-                if (stopRow) *stopRow = row;
-                if (stopCol) *stopCol = visCol;
-                stopped = true;
+            if (!hasStopped && byteOffset >= stopByteOffset) {
+                if (stopRowPointer) *stopRowPointer = rowIndex;
+                if (stopColumnPointer) *stopColumnPointer = visualColumn;
+
+                hasStopped = true;
             }
 
-            visCol += width;
-            byteOfs++;
-        } else if ((c & 0xC0) == 0x80) {
-            byteOfs++;
-        } else {
-            if (visCol + 1 > columns && visCol > 0) {
-                row++;
-                visCol = 0;
+            visualColumn += tabWidth;
+            byteOffset++;
+
+        } else if ((c & 0xC0) == 0x80) byteOffset++;
+
+        else {
+            if (visualColumn + 1 > terminalColumns && visualColumn > 0) {
+                rowIndex++;
+                visualColumn = 0;
+
                 continue;
             }
 
-            if (!stopped && byteOfs >= stopByte) {
-                if (stopRow) *stopRow = row;
-                if (stopCol) *stopCol = visCol;
-                stopped = true;
+            if (!hasStopped && byteOffset >= stopByteOffset) {
+                if (stopRowPointer) *stopRowPointer = rowIndex;
+                if (stopColumnPointer) *stopColumnPointer = visualColumn;
+
+                hasStopped = true;
             }
 
-            visCol++;
-            byteOfs++;
+            visualColumn++;
+            byteOffset++;
 
-            while (byteOfs < length && (G->Buffer[start + byteOfs] & 0xC0) == 0x80) byteOfs++;
+            while (byteOffset < lineBytesLength && (G->ScratchLineBuffer[byteOffset] & 0xC0) == 0x80) byteOffset++;
         }
     }
 
-    if (!stopped) {
-        if (stopRow) *stopRow = row;
-        if (stopCol) *stopCol = visCol;
+    if (!hasStopped) {
+        if (stopRowPointer) *stopRowPointer = rowIndex;
+        if (stopColumnPointer) *stopColumnPointer = visualColumn;
     }
 
-    return row + 1;
+    return rowIndex + 1;
 }
 
-static size_t line_visual_row_count(size_t line) {
-    return line_layout(line, (size_t) -1, NULL, NULL);
-}
-
-static size_t utf8_char_length(char8_t c) {
+static ABI INLINE size_t utf8clen(char8_t c) {
     if ((c & 0x80) == 0x00) return 1;
     if ((c & 0xE0) == 0xC0) return 2;
     if ((c & 0xF0) == 0xE0) return 3;
@@ -1003,378 +1343,453 @@ static size_t utf8_char_length(char8_t c) {
     return 1;
 }
 
-static void clamp_column(void) {
-    size_t length = line_length(G->Row);
-    size_t start = G->LineOffset[G->Row];
+static ABI void clamp_column(void) {
+    size_t len, startOffset;
 
-    if (length == 0) {
-        G->Column = 0;
+    len = linelen(G->CursorRow);
+    startOffset = pt_line_offset(G->CursorRow);
+
+    if (len == 0) {
+        G->CursorColumn = 0;
+
         return;
     }
 
-    if (G->Mode == INSERT_MODE) {
-        if (G->Column > length) G->Column = length;
-    } else {
-        if (G->Column >= length) G->Column = length - 1;
-    }
+    if (G->CurrentMode == EDITOR_MODE_INSERT) if (G->CursorColumn >= len) G->CursorColumn = len;
 
-    while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
+    while (G->CursorColumn > 0 && (pt_character_at(startOffset + G->CursorColumn) & 0xC0) == 0x80) G->CursorColumn--;
 }
 
-static void output_flush(void) {
+static ABI void oflush(void) {
     if (!G->OutputLength) return;
+
     write(1, G->OutputBuffer, G->OutputLength);
 
     G->OutputLength = 0;
 }
 
-static void output_bytes(const char8_t* s, size_t count) {
+static ABI void obytes(const char8_t* stringBytes, size_t count) {
     size_t i;
     for (i = 0; i < count; i++) {
-        if (G->OutputLength == OUTPUT_MAX) output_flush();
+        if (G->OutputLength == OUTPUT_BUFFER_MAXIMUM) oflush();
 
-        G->OutputBuffer[G->OutputLength++] = s[i];
+        G->OutputBuffer[G->OutputLength++] = stringBytes[i];
     }
 }
 
-static void output_string(const char8_t* s) {
-    size_t length = strlen((const char*) s);
+static ABI void ostr(const char8_t* string) {
+    size_t stringLength;
 
-    output_bytes(s, length);
+    stringLength = strlen((const char*) string);
+
+    obytes(string, stringLength);
 }
 
-static void output_byte(char8_t c) {
-    if (G->OutputLength == OUTPUT_MAX) output_flush();
+static ABI INLINE void obyte(char8_t byteValue) {
+    if (G->OutputLength == OUTPUT_BUFFER_MAXIMUM) oflush();
 
-    G->OutputBuffer[G->OutputLength++] = c;
+    G->OutputBuffer[G->OutputLength++] = byteValue;
 }
 
-static void output_csi(const char8_t* sequence) {
-    output_byte(0x1b);
-    output_byte('[');
-    output_string(sequence);
+static ABI void seqout(const char8_t* sequence) {
+    obyte(0x1b);
+    obyte('[');
+    ostr(sequence);
 }
 
-static void cursor_goto(unsigned short row, unsigned short column) {
+static ABI void setcur(unsigned short row, unsigned short column) {
     char8_t rowBuffer[22], columnBuffer[22];
-    char8_t* rowString = u64toa(row + 1, rowBuffer);
-    char8_t* columnString = u64toa(column + 1, columnBuffer);
+    char8_t* rowString, *columnString;
 
-    output_byte(0x1b);
-    output_byte('[');
-    output_string(rowString);
-    output_byte(';');
-    output_string(columnString);
-    output_byte('H');
+    rowString = ull2s(row + 1, rowBuffer);
+    columnString = ull2s(column + 1, columnBuffer);
+
+    obyte(0x1b);
+    obyte('[');
+    ostr(rowString);
+    obyte(';');
+    ostr(columnString);
+    obyte('H');
 }
 
-static void set_status(const char8_t* message) {
-    size_t length = strlen((const char*) message);
+static ABI void status(const char8_t* message) {
+    size_t messageLength;
 
-    if (length >= sizeof(G->Status)) length = sizeof(G->Status) - 1;
+    messageLength = strlen((const char*) message);
 
-    memcpy(G->Status, message, length);
+    if (messageLength >= sizeof(G->StatusBuffer)) messageLength = sizeof(G->StatusBuffer) - 1;
 
-    G->StatusLength = length;
+    memcpy(G->StatusBuffer, message, messageLength);
+
+    G->StatusLength = messageLength;
 }
 
-static void save_file(void) {
+static ABI void save(void) {
     int fd;
-    size_t written = 0;
-    ssize_t n;
+    ssize_t readWriteResult;
+    size_t bytesWrittenTotal, currentPosition, totalLength, filenameLength, numberStringLength, suffixLength, requestedBytes, extractedBytes, chunkWrittenBytes;
     char8_t numberBuffer[22];
+
     char8_t* numberString;
-    size_t fileNameLength = 0;
-    const char8_t* s_w = " written ";
-    const char8_t* s_b = "B";
-    size_t numLen = 0;
+    const char8_t* writtenSuffixString, *bytesUnitString;
 
-    if (!G->FileName[0]) {
-        set_status("No filename.");
+    bytesWrittenTotal = 0;
+    currentPosition = 0;
+    filenameLength = 0;
+    suffixLength = 0;
+
+    writtenSuffixString = " written ";
+    bytesUnitString = "B";
+
+    if (!G->Filename[0]) {
+        status("No filename.");
 
         return;
     }
 
-    fd = open(G->FileName, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    fd = open(G->Filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
-        set_status("Failed to write file.");
+        status("Failed to write file.");
 
         return;
     }
 
-    while (written < G->BufferLength) {
-        n = write(fd, G->Buffer + written, G->BufferLength - written);
-        if (n <= 0) break;
-        written += (size_t) n;
+    totalLength = (G->Root ? G->Root->SubtreeLength : 0);
+
+    while (currentPosition < totalLength) {
+        requestedBytes = totalLength - currentPosition;
+        chunkWrittenBytes = 0;
+
+        if (requestedBytes > sizeof(G->ScratchSaveBuffer)) requestedBytes = sizeof(G->ScratchSaveBuffer);
+
+        extractedBytes = pt_extract(currentPosition, requestedBytes, G->ScratchSaveBuffer, sizeof(G->ScratchSaveBuffer));
+        if (extractedBytes == 0) break;
+
+        while (chunkWrittenBytes < extractedBytes) {
+            readWriteResult = write(fd, G->ScratchSaveBuffer + chunkWrittenBytes, extractedBytes - chunkWrittenBytes);
+            if (readWriteResult <= 0) break;
+
+            chunkWrittenBytes += (size_t) readWriteResult;
+        }
+
+        bytesWrittenTotal += chunkWrittenBytes;
+        currentPosition += extractedBytes;
+
+        if (chunkWrittenBytes < extractedBytes) break;
     }
 
     close(fd);
     G->Dirty = false;
 
-    numberString = u64toa(written, numberBuffer);
+    numberString = ull2s(bytesWrittenTotal, numberBuffer);
+    numberStringLength = strlen((const char*) numberString);
+    suffixLength = 9 + numberStringLength + 1;
 
-    fileNameLength = strlen((const char*) G->FileName);
+    filenameLength = strlen((const char*) G->Filename);
+    if (filenameLength + suffixLength > sizeof(G->StatusBuffer)) {
+        if (sizeof(G->StatusBuffer) > suffixLength) filenameLength = sizeof(G->StatusBuffer) - suffixLength;
+        else filenameLength = 0;
+    }
+
     G->StatusLength = 0;
 
-    memcpy(G->Status + G->StatusLength, G->FileName, fileNameLength);
-    G->StatusLength += fileNameLength;
+    memcpy(G->StatusBuffer + G->StatusLength, G->Filename, filenameLength);
+    G->StatusLength += filenameLength;
 
-    memcpy(G->Status + G->StatusLength, s_w, 9);
+    memcpy(G->StatusBuffer + G->StatusLength, writtenSuffixString, 9);
     G->StatusLength += 9;
 
-    numLen = strlen((const char*) numberString);
-    memcpy(G->Status + G->StatusLength, numberString, numLen);
-    G->StatusLength += numLen;
+    memcpy(G->StatusBuffer + G->StatusLength, numberString, numberStringLength);
+    G->StatusLength += numberStringLength;
 
-    memcpy(G->Status + G->StatusLength, s_b, 1);
+    memcpy(G->StatusBuffer + G->StatusLength, bytesUnitString, 1);
     G->StatusLength += 1;
 }
 
-static void render(void) {
-    unsigned short screenRows = G->Rows - 1;
-    unsigned short screenRow = 0;
-    size_t columns = G->Columns ? G->Columns : 1;
-    size_t line = G->Top;
+static ABI void render(void) {
+    unsigned short screenRows, currentScreenRow;
+    size_t terminalColumns, currentLine, lineCount, lineBytesLength, startOffset, rowsForLine, subRowIndex, byteOffset, scratchLength, visualColumn, tabWidth, iterationIndex, rowStringLength, columnStringLength, infoLength, visualRow, lineIndex, rowInLine, columnInLine;
+    char8_t c;
+    char8_t rowBuffer[22], columnBuffer[22];
 
-    output_csi("?25l");
-    output_csi("?7l");
+    char8_t* rowString, *columnString;
 
-    while (screenRow < screenRows && line < G->LineCount) {
-        size_t length = line_length(line);
-        size_t start = G->LineOffset[line];
-        size_t rowsForLine = line_visual_row_count(line);
-        size_t subRow;
-        size_t byteOfs = 0;
+    screenRows = G->ScreenRows - 1;
+    currentScreenRow = 0;
+    terminalColumns = G->ScreenColumns ? G->ScreenColumns : 1;
+    currentLine = G->TopLineIndex;
+    lineCount = ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1);
 
-        for (subRow = 0; subRow < rowsForLine && screenRow < screenRows; subRow++) {
-            size_t visCol = 0;
+    seqout("?25l");
+    seqout("?7l");
 
-            cursor_goto(screenRow, 0);
-            output_csi("2K");
+    while (currentScreenRow < screenRows && currentLine < lineCount) {
+        lineBytesLength = linelen(currentLine);
+        startOffset = pt_line_offset(currentLine);
+        rowsForLine = linelay(currentLine, (size_t) -1, 0, 0);
+        byteOffset = 0;
 
-            while (byteOfs < length) {
-                char8_t c = G->Buffer[start + byteOfs];
+        scratchLength = pt_extract(startOffset, lineBytesLength, G->ScratchLineBuffer, sizeof(G->ScratchLineBuffer));
+        if (lineBytesLength > scratchLength) lineBytesLength = scratchLength;
+
+        for (subRowIndex = 0; subRowIndex < rowsForLine && currentScreenRow < screenRows; subRowIndex++) {
+            visualColumn = 0;
+
+            setcur(currentScreenRow, 0);
+            seqout("2K");
+
+            while (byteOffset < lineBytesLength) {
+                c = G->ScratchLineBuffer[byteOffset];
 
                 if (c == '\t') {
-                    size_t width = TAB_WIDTH - (visCol % TAB_WIDTH);
-                    size_t k;
+                    tabWidth = TABULATION_WIDTH - (visualColumn % TABULATION_WIDTH);
 
-                    if (visCol + width > columns && visCol > 0) break;
+                    if (visualColumn + tabWidth > terminalColumns && visualColumn > 0) break;
 
-                    for (k = 0; k < width; k++) output_byte(' ');
+                    for (iterationIndex = 0; iterationIndex < tabWidth; iterationIndex++) obyte(' ');
 
-                    visCol += width;
-                    byteOfs++;
+                    visualColumn += tabWidth;
+                    byteOffset++;
                 } else if ((c & 0xC0) == 0x80) {
-                    output_byte(c);
-                    byteOfs++;
+                    obyte(c);
+
+                    byteOffset++;
                 } else {
-                    if (visCol + 1 > columns && visCol > 0) break;
+                    if (visualColumn + 1 > terminalColumns && visualColumn > 0) break;
 
-                    output_byte(c);
-                    visCol++;
-                    byteOfs++;
+                    obyte(c);
+                    visualColumn++;
+                    byteOffset++;
 
-                    while (byteOfs < length && (G->Buffer[start + byteOfs] & 0xC0) == 0x80) {
-                        output_byte(G->Buffer[start + byteOfs]);
-                        byteOfs++;
+                    while (byteOffset < lineBytesLength && (G->ScratchLineBuffer[byteOffset] & 0xC0) == 0x80) {
+                        obyte(G->ScratchLineBuffer[byteOffset]);
+
+                        byteOffset++;
                     }
                 }
             }
 
-            screenRow++;
+            currentScreenRow++;
         }
 
-        line++;
+        currentLine++;
     }
 
-    while (screenRow < screenRows) {
-        cursor_goto(screenRow, 0);
-        output_csi("2K");
-        output_byte('~');
+    while (currentScreenRow < screenRows) {
+        setcur(currentScreenRow, 0);
+        seqout("2K");
+        obyte('~');
 
-        screenRow++;
+        currentScreenRow++;
     }
 
-    cursor_goto(G->Rows - 1, 0);
-    output_csi("2K");
+    setcur(G->ScreenRows - 1, 0);
+    seqout("2K");
 
-    switch (G->Mode) {
-        case COMMAND_MODE: output_byte(':'); output_bytes(G->CommandLine, G->CommandLineLength); break;
+    switch (G->CurrentMode) {
+        case EDITOR_MODE_COMMAND: {
+            obyte(':');
+            obytes(G->CommandLineBuffer, G->CommandLineLength);
+
+            break;
+        }
 
         default: {
-            switch (G->Mode) {
-                case INSERT_MODE: output_csi("7m"); output_string(" INSERT "); output_csi("m"); output_byte(' '); break;
+            switch (G->CurrentMode) {
+                case EDITOR_MODE_INSERT: {
+                    seqout("7m");
+                    ostr(" INSERT ");
+                    seqout("m");
+                    obyte(' ');
 
-                default: output_csi("7m"); output_string(" NORMAL "); output_csi("m"); output_byte(' '); break;
-            }
+                    break;
+                }
 
-            if (G->StatusLength) output_bytes(G->Status, G->StatusLength);
-            else {
-                output_string(G->FileName[0] ? G->FileName : "[No Name]");
-                if (G->Dirty) output_string(" [+]");
-            }
+                default: {
+                    seqout("7m");
+                    ostr(" NORMAL ");
+                    seqout("m");
+                    obyte(' ');
 
-            {
-                char8_t rowBuffer[22], columnBuffer[22];
-                char8_t* rowString = u64toa(G->Row + 1, rowBuffer);
-                char8_t* columnString = u64toa(G->Column + 1, columnBuffer);
-                size_t rowStrLen = strlen((const char*) rowString);
-                size_t colStrLen = strlen((const char*) columnString);
-                size_t infoLength = rowStrLen + 1 + colStrLen;
-
-                if (G->Columns > infoLength + 1) {
-                    cursor_goto(G->Rows - 1, (unsigned short) (G->Columns - infoLength - 1));
-                    output_string(rowString);
-                    output_byte(':');
-                    output_string(columnString);
+                    break;
                 }
             }
 
-            break;
+            if (G->StatusLength) obytes(G->StatusBuffer, G->StatusLength);
+
+            else {
+                ostr(G->Filename[0] ? G->Filename : "[No Name]");
+                if (G->Dirty) ostr(" [+]");
+            }
+
+            rowString = ull2s(G->CursorRow + 1, rowBuffer);
+            columnString = ull2s(G->CursorColumn + 1, columnBuffer);
+            rowStringLength = strlen((const char*) rowString);
+            columnStringLength = strlen((const char*) columnString);
+            infoLength = rowStringLength + 1 + columnStringLength;
+
+            if (G->ScreenColumns > infoLength + 1) {
+                setcur(G->ScreenRows - 1, (unsigned short) (G->ScreenColumns - infoLength - 1));
+                ostr(rowString);
+                obyte(':');
+                ostr(columnString);
+            } break;
         }
     }
 
-    switch (G->Mode) {
-        case COMMAND_MODE: cursor_goto(G->Rows - 1, (unsigned short) (1 + G->CommandLineLength)); break;
+    switch (G->CurrentMode) {
+        case EDITOR_MODE_COMMAND: {
+            setcur(G->ScreenRows - 1, (unsigned short) (1 + G->CommandLineLength));
+
+            break;
+        }
 
         default: {
-            size_t visualRow = 0;
-            size_t lineIndex;
-            size_t rowInLine, colInLine;
-            for (lineIndex = G->Top; lineIndex < G->Row; lineIndex++) visualRow += line_visual_row_count(lineIndex);
+            visualRow = 0;
 
-            line_layout(G->Row, G->Column, &rowInLine, &colInLine);
+            for (lineIndex = G->TopLineIndex; lineIndex < G->CursorRow; lineIndex++) visualRow += linelay(lineIndex, (size_t) -1, 0, 0);
+
+            linelay(G->CursorRow, G->CursorColumn, &rowInLine, &columnInLine);
             visualRow += rowInLine;
-            cursor_goto((unsigned short) visualRow, (unsigned short) colInLine);
+            setcur((unsigned short) visualRow, (unsigned short) columnInLine);
 
             break;
         }
     }
 
-    output_csi("?7h");
-    output_csi("?25h");
-    output_flush();
+    seqout("?7h");
+    seqout("?25h");
+
+    oflush();
 }
 
-static size_t cursor_offset(void) {
-    size_t offset = G->LineOffset[G->Row] + G->Column;
+static ABI INLINE size_t offsetcur(void) {
+    size_t offset, totalLength;
 
-    return offset > G->BufferLength ? G->BufferLength : offset;
+    offset = pt_line_offset(G->CursorRow) + G->CursorColumn;
+    totalLength = (G->Root ? G->Root->SubtreeLength : 0);
+
+    return offset > totalLength ? totalLength : offset;
 }
 
-static void buffer_insert(size_t offset, char8_t c) {
-    size_t count_ins;
-
-    ensure_buffer_capacity(G->BufferLength + 1);
-
-    count_ins = G->BufferLength - offset;
-    memmove(G->Buffer + offset + 1, G->Buffer + offset, count_ins);
-
-    G->Buffer[offset] = c;
-    G->BufferLength++;
-    rebuild_line_offsets();
+static ABI void insbuf(size_t offset, char8_t c) {
+    undo_begin_edit();
+    pt_insertb(offset, &c, 1);
 
     G->Dirty = true;
 }
 
-static void buffer_delete(size_t offset) {
-    size_t count_del;
+static ABI void delbuf(size_t offset) {
+    if (offset >= (G->Root ? G->Root->SubtreeLength : 0)) return;
 
-    if (offset >= G->BufferLength) return;
-
-    count_del = G->BufferLength - offset - 1;
-    memmove(G->Buffer + offset, G->Buffer + offset + 1, count_del);
-
-    G->BufferLength--;
-    rebuild_line_offsets();
+    undo_begin_edit();
+    pt_delete_range(offset, 1);
 
     G->Dirty = true;
 }
 
-static void delete_char_at_cursor(void) {
-    size_t len = line_length(G->Row);
-    if (len > 0 && G->Column < len) {
-        size_t start = G->LineOffset[G->Row];
-        size_t rem = len - G->Column;
-        size_t cLen = utf8_char_length(G->Buffer[start + G->Column]);
-        size_t k;
+static ABI void delete_char_at_cursor(void) {
+    size_t len, startOffset, remainingBytes, characterLength, iterationIndex;
 
-        if (cLen > rem) cLen = rem;
+    len = linelen(G->CursorRow);
+    if (len > 0 && G->CursorColumn < len) {
+        startOffset = pt_line_offset(G->CursorRow);
+        remainingBytes = len - G->CursorColumn;
+        characterLength = utf8clen(pt_character_at(startOffset + G->CursorColumn));
 
-        for (k = 0; k < cLen; k++) buffer_delete(cursor_offset());
+        if (characterLength > remainingBytes) characterLength = remainingBytes;
+
+        for (iterationIndex = 0; iterationIndex < characterLength; iterationIndex++) delbuf(offsetcur());
     }
+
+    G->Undo = false;
 }
 
-static void adjust_scroll(void) {
-    unsigned short screenRows = G->Rows - 1;
+static ABI void adjscr(void) {
+    unsigned short screenRows;
+    size_t visualRows, lineIndex, rowInLine;
 
-    size_t visualRows;
-    size_t line;
-    size_t rowInLine;
+    screenRows = G->ScreenRows - 1;
 
-    if (G->Row < G->Top) G->Top = G->Row;
+    if (G->CursorRow < G->TopLineIndex) G->TopLineIndex = G->CursorRow;
 
     visualRows = 0;
-    for (line = G->Top; line < G->Row; line++) visualRows += line_visual_row_count(line);
+    for (lineIndex = G->TopLineIndex; lineIndex < G->CursorRow; lineIndex++) visualRows += linelay(lineIndex, (size_t) -1, 0, 0);
 
-    line_layout(G->Row, G->Column, &rowInLine, NULL);
+    linelay(G->CursorRow, G->CursorColumn, &rowInLine, (size_t*) NULL);
     visualRows += rowInLine + 1;
 
-    while (visualRows > screenRows && G->Top < G->Row) {
-        visualRows -= line_visual_row_count(G->Top);
+    while (visualRows > screenRows && G->TopLineIndex < G->CursorRow) {
+        visualRows -= linelay(G->TopLineIndex, (size_t) -1, 0, 0);
 
-        G->Top++;
+        G->TopLineIndex++;
     }
 }
 
-static void move_cursor(int direction) {
-    size_t length = line_length(G->Row);
-    size_t start = G->LineOffset[G->Row];
+static ABI void movcur(int direction) {
+    size_t len, startOffset;
+
+    len = linelen(G->CursorRow);
+    startOffset = pt_line_offset(G->CursorRow);
 
     switch (direction) {
         case 'h': {
-            if (G->Column > 0) {
-                G->Column--;
-                while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
-            }
-            break;
-        }
-        case 'l': {
-            if (length > 0 && G->Column < length) {
-                G->Column++;
-                while (G->Column < length && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column++;
-            }
-            break;
-        }
-        case 'j': if (G->Row + 1 < G->LineCount) G->Row++; break;
-        case 'k': if (G->Row > 0) G->Row--; break;
+            if (G->CursorColumn > 0) {
+                G->CursorColumn--;
 
-        case '0': G->Column = 0; break;
+                while (G->CursorColumn > 0 && (pt_character_at(startOffset + G->CursorColumn) & 0xC0) == 0x80) G->CursorColumn--;
+            } break;
+        }
+
+        case 'l': {
+            if (len > 0 && G->CursorColumn < len) {
+                G->CursorColumn++;
+                while (G->CursorColumn < len && (pt_character_at(startOffset + G->CursorColumn) & 0xC0) == 0x80) G->CursorColumn--;
+            } break;
+        }
+
+        case 'j': {
+            if (G->CursorRow + 1 < ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1)) G->CursorRow++;
+
+            break;
+        }
+
+        case 'k': {
+            if (G->CursorRow > 0) G->CursorRow--;
+
+            break;
+        }
+
+        case '0': {
+            G->CursorColumn = 0;
+
+            break;
+        }
 
         case '$': {
-            if (length > 0) {
-                if (G->Mode == INSERT_MODE) {
-                    G->Column = length;
-                } else {
-                    G->Column = length - 1;
-                    while (G->Column > 0 && (G->Buffer[start + G->Column] & 0xC0) == 0x80) G->Column--;
+            if (len > 0) {
+                if (G->CurrentMode == EDITOR_MODE_INSERT) G->CursorColumn = len;
+
+                else {
+                    G->CursorColumn = len - 1;
+                    while (G->CursorColumn > 0 && (pt_character_at(startOffset + G->CursorColumn) & 0xC0) == 0x80) G->CursorColumn--;
                 }
-            } else {
-                G->Column = 0;
-            }
+            } else G->CursorColumn = 0;
+
             break;
         }
 
         case 0x06: {
-            G->Row += (G->Rows - 1) / 2;
-            if (G->Row >= G->LineCount && G->LineCount > 0) G->Row = G->LineCount - 1;
+            G->CursorRow += (G->ScreenRows - 1) / 2;
+            if (G->CursorRow >= ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1) && ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1) > 0) G->CursorRow = ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1) - 1;
+
             break;
         }
 
         case 0x02: {
-            if (G->Row >= (G->Rows - 1) / 2) G->Row -= (G->Rows - 1) / 2;
-            else G->Row = 0;
+            if (G->CursorRow >= (size_t) (G->ScreenRows - 1) / 2) G->CursorRow -= (G->ScreenRows - 1) / 2;
+            else G->CursorRow = 0;
+
             break;
         }
 

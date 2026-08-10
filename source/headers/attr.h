@@ -3,10 +3,6 @@
 #ifndef ATTR_H
 #define ATTR_H
 
-#ifndef __clang__
-#error "Unsupported Compiler. Use Clang."
-#endif
-
 #define MSABI __attribute__((ms_abi))
 #define SYSVABI __attribute__((sysv_abi))
 

@@ -3,10 +3,6 @@
 #ifndef STR_H
 #define STR_H
 
-#ifndef __clang__
-#error "Unsupported Compiler. Use Clang."
-#endif
-
 #define memcpy __builtin_memcpy
 #define memmove __builtin_memmove
 #define memccpy __builtin_memccpy

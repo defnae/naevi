@@ -48,7 +48,7 @@ build:
 	@printf "    $(GREEN)✓$(RESET) Created directories.\n"
 
 	@printf "\n    $(CYAN)→$(RESET) Compiling..\n\n"
-	clang $(CFLAGS) "$(SOURCE)/main.c" -o "$(BUILD)/$(NAME)" -fuse-ld=lld $(LFLAGS)
+	clang $(CFLAGS) "$(SOURCE)/main.c" -o "$(BUILD)/$(NAME)" --save-temps=obj -fuse-ld=lld $(LFLAGS)
 	@printf "\n    $(GREEN)✓$(RESET) Compiled.\n"
 
 	@llvm-strip --strip-all "$(BUILD)/$(NAME)"

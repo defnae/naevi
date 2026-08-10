@@ -3,13 +3,9 @@
 #ifndef DEF_H
 #define DEF_H
 
-#ifndef __clang__
-#error "Unsupported Compiler. Use Clang."
-#endif
-
 #define NULL ((void*) 0)
 
-#define offsetof(type, member) __builtin_offsetof(type, member)
+#define offsetof __builtin_offsetof
 
 typedef __SIZE_TYPE__ size_t;
 

@@ -3,10 +3,6 @@
 #ifndef INT_H
 #define INT_H
 
-#ifndef __clang__
-#error "Unsupported Compiler. Use Clang."
-#endif
-
 typedef __INT8_TYPE__ int8_t;
 typedef __UINT8_TYPE__ uint8_t;
 
