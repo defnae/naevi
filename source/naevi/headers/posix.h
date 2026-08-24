@@ -8,6 +8,8 @@ typedef __UINT16_TYPE__ ws_col;
 
 typedef __PTRDIFF_TYPE__ ssize_t;
 
+typedef __INT32_TYPE__ sig_atomic_t;
+
 #ifdef __linux__
 typedef __SIZE_TYPE__ nfds_t;
 #else
@@ -31,6 +33,9 @@ tcsetattr(__INT32_TYPE__, __INT32_TYPE__, const termios *);
 
 ioctl(__INT32_TYPE__, unsigned long, ...);
 poll(pollfd *, nfds_t, __INT32_TYPE__);
+
+void (*signal(__INT32_TYPE__, void (*)(__INT32_TYPE__)))(__INT32_TYPE__);
+siginterrupt(__INT32_TYPE__, __INT32_TYPE__);
 
 #define O_RDONLY 0x0000
 #define O_WRONLY 0x0001
@@ -135,6 +140,8 @@ struct termios {
 #elif defined(__linux__)
 #define TIOCGWINSZ 0x5413
 #endif
+
+#define SIGWINCH 28
 
 struct winsize {
 	__UINT16_TYPE__ ws_row;

@@ -66,12 +66,16 @@ typedef struct {
 static Globals GlobalData;
 static Globals *G = &GlobalData;
 
+static volatile sig_atomic_t resizePending;
+
 void *malloc(size_t);
 void *realloc(void *, size_t);
 void free(void *);
 
 static ABI unsigned char ready(signed int);
 static ABI unsigned char *ull2s(unsigned qword, unsigned byte *);
+
+static void on_winch(signed dword);
 
 static ABI void acap(size_t);
 static ABI INLINE unsigned int rng_next(void);
@@ -172,6 +176,9 @@ char *argv[], *envp[];
 			G->ScreenColumns = windowSize.ws_col;
 	}
 
+	signal(SIGWINCH, on_winch);
+	siginterrupt(SIGWINCH, true);
+
 	if (argc < 2) G->Root = 0;
 	else {
 		filePath = (const unsigned byte *) argv[1];
@@ -250,7 +257,27 @@ char *argv[], *envp[];
 			G->Pushback = false;
 		} else {
 			readBytesCount = read(0, &rawInputByte, 1);
-			if (readBytesCount <= 0) break;
+			if (readBytesCount <= 0) {
+				if (resizePending) {
+					resizePending = false;
+
+					if (ioctl(1, TIOCGWINSZ, &windowSize) == 0) {
+						if (windowSize.ws_row > 0)
+							G->ScreenRows = windowSize.ws_row;
+						if (windowSize.ws_col > 0)
+							G->ScreenColumns = windowSize.ws_col;
+					}
+
+					adjscr();
+
+					G->DirtyKind = DIRTY_FULL;
+					render();
+
+					continue;
+				}
+
+				break;
+			}
 
 			inputByte = rawInputByte;
 		}
@@ -780,6 +807,14 @@ char *argv[], *envp[];
 	if (G->Newlines) free(G->Newlines);
 
 	return 0;
+}
+
+static void on_winch(signum)
+signed dword signum;
+{
+	(void) signum;
+
+	resizePending = true;
 }
 
 static ABI unsigned byte ready(ms)
