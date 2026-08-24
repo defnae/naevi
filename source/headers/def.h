@@ -1,4 +1,4 @@
-// headers/std/def.h
+// source/headers/std/def.h
 
 #ifndef DEF_H
 #define DEF_H
@@ -11,4 +11,4 @@ typedef __SIZE_TYPE__ size_t;
 
 typedef __PTRDIFF_TYPE__ ptrdiff_t;
 
-#endif
+#endif /* DEF_H */
