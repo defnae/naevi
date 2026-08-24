@@ -6,8 +6,8 @@
 #include <headers/def.h>
 #include <headers/str.h>
 
+#include <naevi/headers/pt.h>
 #include <naevi/headers/posix.h>
-#include <naevi/headers/naevi.h>
 
 #define TAB_WIDTH 4
 #define MAX_HISTORY 4096
