@@ -20,8 +20,12 @@ DIM := \033[2m
 RESET := \033[0m
 
 WFLAGS ?= -Weverything -Wno-gcc-compat -Wno-deprecated-non-prototype -Wno-implicit-int -Wno-comment -Wno-unsafe-buffer-usage -Wno-long-long
-CFLAGS ?= -I$(SOURCE) -std=iso9899:199409 -funsigned-char $(WFLAGS) -fomit-frame-pointer -O3
-LFLAGS ?=
+
+LTO := $(shell echo 'int main(void) { return 0; }' | clang -flto -x c - -fuse-ld=lld -o /dev/null 2>/dev/null && echo -flto)
+STATIC := $(shell echo 'int main(void) { return 0; }' | clang -static -x c - -fuse-ld=lld -o /dev/null 2>/dev/null && echo -static)
+
+CFLAGS ?= -I$(SOURCE) -std=iso9899:199409 -funsigned-char $(WFLAGS) $(LTO) -fomit-frame-pointer -O3
+LFLAGS ?= $(STATIC)
 
 .ONESHELL:
 .PHONY: all clean build run compile_commands.json
