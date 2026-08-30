@@ -9,7 +9,7 @@
 #include <naevi/headers/pt.h>
 #include <naevi/headers/posix.h>
 
-#define TAB_WIDTH 4
+#define TAB_WIDTH 8
 #define MAX_HISTORY 4096
 
 #define NORMAL_MODE 0
@@ -77,7 +77,6 @@ static ABI unsigned char *ull2s(unsigned qword, unsigned byte *);
 
 static void on_winch(signed dword);
 
-static ABI void acap(size_t);
 static ABI INLINE unsigned int rng_next(void);
 
 static ABI PN *pn_create(unsigned int, size_t, size_t, size_t, PN *, PN *, unsigned int);
@@ -89,29 +88,21 @@ static ABI SP pn_split(PN *, size_t);
 
 static ABI size_t lown(size_t);
 static ABI size_t cntnl(unsigned int, size_t, size_t);
-static ABI size_t findnl(unsigned int, size_t, size_t, size_t);
 
 static ABI PN *pt_locate(size_t, size_t *, size_t *);
 static ABI unsigned char pt_character_at(size_t);
 
 static ABI size_t pt_extract(size_t, size_t, unsigned char *, size_t);
-static ABI unsigned char pt_offset_of_newline(size_t, size_t *);
 
 static ABI size_t pt_line_offset(size_t);
 static ABI void pt_line_bounds(size_t, size_t *, size_t *);
 static ABI void pt_insertb(size_t, const unsigned char *, size_t);
 static ABI void pt_delete_range(size_t, size_t);
-static ABI void pt_build_index(void);
 
-static ABI void ucap(size_t);
-static ABI void rcap(size_t);
 static ABI void pushu(PN *);
-static ABI INLINE PN *popu(void);
 
 static ABI void pushr(PN *);
-static ABI INLINE PN *popr(void);
 
-static ABI void clrr(void);
 static ABI void undo_begin_edit(void);
 static ABI void fixcur(void);
 static ABI void undo(void);
@@ -130,7 +121,7 @@ static ABI INLINE void obyte(unsigned int);
 static ABI void seqout(const unsigned char *);
 static ABI void setcur(unsigned int, unsigned int);
 static ABI void status(const unsigned char *);
-static ABI void save(void);
+static ABI unsigned byte save(void);
 static ABI void render(void);
 static ABI INLINE size_t offsetcur(void);
 
@@ -157,7 +148,6 @@ char *argv[], *envp[];
 	static unsigned byte drainByte, isMergingUp, isNavigationKey, keyCode, nextCharacter, rawInputByte, statBuffer[STAT_BUFFER_SIZE], tildeCharacter;
 	static size_t bytesToDelete, characterLength, clearIndex, commandClearIndex, deleteIndex, endOffset, joinColumn, nameLength, offset, oldColumn, pathLength, startOffset, totalBytesRead, len;
 
-	static off_t *sizePointer;
 	static unsigned byte *commandString;
 	static const unsigned byte *filePath;
 
@@ -196,11 +186,7 @@ char *argv[], *envp[];
 		if (fd < 0) G->Root = 0;
 		else {
 			if (fstat(fd, (stat *) statBuffer) != 0) fileSize = -1;
-			else {
-				sizePointer = (off_t *) (statBuffer + STAT_SIZE_OFFSET);
-
-				fileSize = *sizePointer;
-			}
+			else memcpy(&fileSize, (statBuffer + STAT_SIZE_OFFSET), sizeof(fileSize));
 
 			if (fileSize > 0) {
 				totalBytesRead = 0;
@@ -222,7 +208,21 @@ char *argv[], *envp[];
 				}
 
 				G->Length = totalBytesRead;
-				pt_build_index();
+				{
+					static size_t count_init, i_init;
+					count_init = 0;
+					for (i_init = 0; i_init < G->Length; i_init++)
+						if (G->Buffer[i_init] == '\n') count_init++;
+
+					G->Newlines = count_init ? (size_t *) malloc(count_init * sizeof(size_t)) : 0;
+					if (count_init && !G->Newlines) {
+						G->NewlineCount = 0;
+					} else {
+						G->NewlineCount = 0;
+						for (i_init = 0; i_init < G->Length; i_init++)
+							if (G->Buffer[i_init] == '\n') G->Newlines[G->NewlineCount++] = i_init;
+					}
+				}
 
 				G->Root = (G->Length > 0) ? pn_create(PS_ORIGIN, 0, G->Length, G->NewlineCount, 0, 0, rng_next()) : 0;
 			} else G->Root = 0;
@@ -667,7 +667,10 @@ char *argv[], *envp[];
 								switch (commandString[1]) {
 									case '\0': case '!': {
 										switch (commandString[commandString[1] == '!' ? 2 : 1]) {
-											case '\0': save(); break;
+											case '\0': {
+												if (!save()) break;
+												break;
+											}
 
 											default: status((const unsigned byte *) "Unknown command."); break;
 										} break;
@@ -676,7 +679,7 @@ char *argv[], *envp[];
 									case 'q': {
 										switch (commandString[2]) {
 											case '\0': {
-												save();
+												if (!save()) break;
 
 												G->Running = false; break;
 											}
@@ -684,7 +687,7 @@ char *argv[], *envp[];
 											case '!': {
 												switch (commandString[3]) {
 													case '\0': {
-														save();
+														if (!save()) break;
 
 														G->Running = false; break;
 													}
@@ -698,6 +701,10 @@ char *argv[], *envp[];
 													case '\0': status((const unsigned byte *) "Unknown command."); break;
 
 													default: {
+														static unsigned byte oldFilenameBackup[4096];
+														size_t b_idx;
+														for (b_idx = 0; b_idx < sizeof(G->Filename); b_idx++) oldFilenameBackup[b_idx] = G->Filename[b_idx];
+
 														nameLength = strlen((const byte *) (commandString + 3));
 
 														if (nameLength >= sizeof(G->Filename))
@@ -706,7 +713,10 @@ char *argv[], *envp[];
 														memcpy(G->Filename, commandString + 3, nameLength);
 														G->Filename[nameLength] = '\0';
 
-														save();
+														if (!save()) {
+															for (b_idx = 0; b_idx < sizeof(G->Filename); b_idx++) G->Filename[b_idx] = oldFilenameBackup[b_idx];
+															break;
+														}
 														G->Running = false;
 
 														break;
@@ -723,6 +733,10 @@ char *argv[], *envp[];
 											case '\0': status((const unsigned byte *) "Unknown command."); break;
 
 											default: {
+												static unsigned byte oldFilenameBackup[4096];
+												size_t b_idx;
+												for (b_idx = 0; b_idx < sizeof(G->Filename); b_idx++) oldFilenameBackup[b_idx] = G->Filename[b_idx];
+
 												nameLength = strlen((const byte *) (commandString + 2));
 
 												if (nameLength >= sizeof(G->Filename))
@@ -731,7 +745,11 @@ char *argv[], *envp[];
 												memcpy(G->Filename, commandString + 2, nameLength);
 												G->Filename[nameLength] = '\0';
 
-												save(); break;
+												if (!save()) {
+													for (b_idx = 0; b_idx < sizeof(G->Filename); b_idx++) G->Filename[b_idx] = oldFilenameBackup[b_idx];
+													break;
+												}
+												break;
 											}
 										} break;
 									}
@@ -743,7 +761,7 @@ char *argv[], *envp[];
 							case 'x': {
 								switch (commandString[1]) {
 									case '\0': {
-										save();
+										if (!save()) break;
 
 										G->Running = false; break;
 									}
@@ -751,7 +769,7 @@ char *argv[], *envp[];
 									case '!': {
 										switch (commandString[2]) {
 											case '\0': {
-												save();
+												if (!save()) break;
 
 												G->Running = false; break;
 											}
@@ -815,6 +833,8 @@ signed dword signum;
 	(void) signum;
 
 	resizePending = true;
+
+	return;
 }
 
 static ABI unsigned byte ready(ms)
@@ -851,24 +871,6 @@ unsigned byte *buffer;
 	}
 
 	return pointer;
-}
-
-static ABI void acap(neededCapacity)
-size_t neededCapacity;
-{
-	static size_t newCapacity;
-	static unsigned byte *newBuffer;
-
-	if (neededCapacity <= G->AddCapacity) return;
-
-	newCapacity = G->AddCapacity ? G->AddCapacity : 4096;
-	while (newCapacity < neededCapacity) newCapacity *= 2;
-
-	newBuffer = (unsigned byte *) realloc(G->AddBuffer, newCapacity);
-	if (newBuffer) {
-		G->AddBuffer = newBuffer;
-		G->AddCapacity = newCapacity;
-	}
 }
 
 static ABI INLINE unsigned dword rng_next(void) {
@@ -929,6 +931,8 @@ PN *Node;
 
 		free(Node);
 	}
+
+	return;
 }
 
 static ABI PN *pn_merge(leftNode, rightNode)
@@ -949,6 +953,8 @@ PN *leftNode, *rightNode;
 
 		return pn_create(rightNode->Source, rightNode->StartOffset, rightNode->Length, rightNode->LineFeeds, newLeftChild, pn_retain(rightNode->RightChild), rightNode->Priority);
 	}
+
+	/* return (PN *) NULL; */
 }
 
 static ABI SP pn_split(Node, splitKey)
@@ -1037,31 +1043,6 @@ size_t startOffset, len;
 	}
 }
 
-static ABI size_t findnl(Source, startOffset, len, targetNewlineIndex)
-unsigned dword Source;
-size_t startOffset, len, targetNewlineIndex;
-{
-	static size_t lowerBoundIndex, i;
-
-	if (Source == PS_ORIGIN) {
-		lowerBoundIndex = lown(startOffset);
-
-		return G->Newlines[lowerBoundIndex + targetNewlineIndex] - startOffset;
-	} else {
-		for (i = 0; i < len; i++) {
-			if (G->AddBuffer[startOffset + i] == '\n') {
-				if (targetNewlineIndex == 0) {
-					return i;
-				}
-
-				targetNewlineIndex--;
-			}
-		}
-
-		return len;
-	}
-}
-
 static ABI PN *pt_locate(offset, pieceAbsoluteStart, offsetInPiece)
 size_t offset;
 size_t *pieceAbsoluteStart, *offsetInPiece;
@@ -1113,6 +1094,7 @@ size_t offset;
 	if (!Node) return 0;
 
 	sourceBuffer = (Node->Source == PS_ORIGIN) ? G->Buffer : G->AddBuffer;
+	
 	return sourceBuffer[Node->StartOffset + offsetInPiece];
 }
 
@@ -1155,13 +1137,15 @@ size_t destinationCapacity;
 	return bytesWritten;
 }
 
-static ABI unsigned byte pt_offset_of_newline(newlineIndex, outOffset)
-size_t newlineIndex;
-size_t *outOffset;
+static ABI size_t pt_line_offset(lineNumber)
+size_t lineNumber;
 {
-	static size_t baseOffset, leftSubtreeLineFeeds, leftSubtreeLength;
-
+	static size_t characterOffset;
+	static size_t baseOffset, leftSubtreeLineFeeds, leftSubtreeLength, newlineIndex;
 	static PN *Node;
+
+	if (lineNumber == 0) return 0;
+	newlineIndex = lineNumber - 1;
 
 	Node = G->Root;
 	baseOffset = 0;
@@ -1180,9 +1164,24 @@ size_t *outOffset;
 		baseOffset += leftSubtreeLength;
 
 		if (newlineIndex < Node->LineFeeds) {
-			*outOffset = baseOffset + findnl(Node->Source, Node->StartOffset, Node->Length, newlineIndex);
-
-			return true;
+			static size_t lowerBoundIndex_in, target_nl, i_in;
+			target_nl = newlineIndex;
+			if (Node->Source == PS_ORIGIN) {
+				lowerBoundIndex_in = lown(Node->StartOffset);
+				characterOffset = baseOffset + (G->Newlines[lowerBoundIndex_in + target_nl] - Node->StartOffset);
+			} else {
+				for (i_in = 0; i_in < Node->Length; i_in++) {
+					if (G->AddBuffer[Node->StartOffset + i_in] == '\n') {
+						if (target_nl == 0) {
+							characterOffset = baseOffset + i_in;
+							break;
+						}
+						target_nl--;
+					}
+				}
+				if (target_nl > 0) characterOffset = baseOffset + Node->Length;
+			}
+			return characterOffset + 1;
 		}
 
 		newlineIndex -= Node->LineFeeds;
@@ -1190,18 +1189,6 @@ size_t *outOffset;
 
 		Node = Node->RightChild;
 	}
-
-	return false;
-}
-
-static ABI size_t pt_line_offset(lineNumber)
-size_t lineNumber;
-{
-	static size_t characterOffset;
-
-	if (lineNumber == 0) return 0;
-	if (pt_offset_of_newline(lineNumber - 1, &characterOffset))
-		return characterOffset + 1;
 
 	return (G->Root ? G->Root->SubtreeLength : 0);
 }
@@ -1227,6 +1214,8 @@ size_t *outStart, *outLength;
 
 	if (outStart) *outStart = startOffset;
 	if (outLength) *outLength = (endOffset > startOffset) ? (endOffset - startOffset) : 0;
+
+	return;
 }
 
 static ABI void pt_insertb(offset, dataBytes, len)
@@ -1235,13 +1224,24 @@ const unsigned byte *dataBytes;
 size_t len;
 {
 	static SP splitResult;
-	static size_t lineFeedCount, pieceStartOffset;
+	static size_t lineFeedCount, pieceStartOffset, neededCapacity_local, newCapacity_local;
+	static unsigned byte *newBuffer_local;
 
 	static PN *newPieceNode, *mergedNode1, *newRootNode;
 
 	if (len == 0) return;
 
-	acap(G->AddLength + len);
+	neededCapacity_local = G->AddLength + len;
+	if (neededCapacity_local > G->AddCapacity) {
+		newCapacity_local = G->AddCapacity ? G->AddCapacity : 4096;
+		while (newCapacity_local < neededCapacity_local) newCapacity_local *= 2;
+
+		newBuffer_local = (unsigned byte *) realloc(G->AddBuffer, newCapacity_local);
+		if (newBuffer_local) {
+			G->AddBuffer = newBuffer_local;
+			G->AddCapacity = newCapacity_local;
+		}
+	}
 	memcpy(G->AddBuffer + G->AddLength, dataBytes, len);
 
 	pieceStartOffset = G->AddLength;
@@ -1262,6 +1262,8 @@ size_t len;
 	pn_release(G->Root);
 
 	G->Root = newRootNode;
+
+	return;
 }
 
 static ABI void pt_delete_range(offset, len)
@@ -1285,69 +1287,15 @@ size_t offset, len;
 	pn_release(G->Root);
 
 	G->Root = newRootNode;
-}
 
-static ABI void pt_build_index(void) {
-	static size_t count, i;
-
-	count = 0;
-	for (i = 0; i < G->Length; i++)
-		if (G->Buffer[i] == '\n') count++;
-
-	G->Newlines = count ? (size_t *) malloc(count * sizeof(size_t)) : 0;
-	if (count && !G->Newlines) {
-		G->NewlineCount = 0;
-
-		return;
-	}
-
-	G->NewlineCount = 0;
-
-	for (i = 0; i < G->Length; i++)
-		if (G->Buffer[i] == '\n') G->Newlines[G->NewlineCount++] = i;
-}
-
-static ABI void ucap(neededCapacity)
-size_t neededCapacity;
-{
-	static size_t newCapacity;
-
-	static PN **newStack;
-
-	if (neededCapacity <= G->UndoCapacity) return;
-
-	newCapacity = G->UndoCapacity ? G->UndoCapacity : 64;
-	while (newCapacity < neededCapacity) newCapacity *= 2;
-
-	newStack = (PN **) realloc(G->UndoStack, newCapacity * sizeof(PN *));
-	if (newStack) {
-		G->UndoStack = newStack;
-		G->UndoCapacity = newCapacity;
-	}
-}
-
-static ABI void rcap(neededCapacity)
-size_t neededCapacity;
-{
-	static size_t newCapacity;
-	static PN **newStack;
-
-	if (neededCapacity <= G->RedoCapacity) return;
-
-	newCapacity = G->RedoCapacity ? G->RedoCapacity : 64;
-	while (newCapacity < neededCapacity) newCapacity *= 2;
-
-	newStack = (PN **) realloc(G->RedoStack, newCapacity * sizeof(PN *));
-	if (newStack) {
-		G->RedoStack = newStack;
-		G->RedoCapacity = newCapacity;
-	}
+	return;
 }
 
 static ABI void pushu(rootNode)
 PN *rootNode;
 {
-	static size_t i;
+	static size_t i, neededCapacity_u, newCapacity_u;
+	static PN **newStack_u;
 
 	if (G->UndoCount >= MAX_HISTORY) {
 		pn_release(G->UndoStack[0]);
@@ -1357,45 +1305,58 @@ PN *rootNode;
 		G->UndoCount--;
 	}
 
-	ucap(G->UndoCount + 1);
+	neededCapacity_u = G->UndoCount + 1;
+	if (neededCapacity_u > G->UndoCapacity) {
+		newCapacity_u = G->UndoCapacity ? G->UndoCapacity : 64;
+		while (newCapacity_u < neededCapacity_u) newCapacity_u *= 2;
+
+		newStack_u = (PN **) realloc(G->UndoStack, newCapacity_u * sizeof(PN *));
+		if (newStack_u) {
+			G->UndoStack = newStack_u;
+			G->UndoCapacity = newCapacity_u;
+		}
+	}
 	G->UndoStack[G->UndoCount++] = pn_retain(rootNode);
-}
 
-static ABI INLINE PN *popu(void) {
-	if (G->UndoCount == 0) return 0;
-
-	return G->UndoStack[--G->UndoCount];
+	return;
 }
 
 static ABI void pushr(rootNode)
 PN *rootNode;
 {
-	rcap(G->RedoCount + 1);
+	static size_t neededCapacity_r, newCapacity_r;
+	static PN **newStack_r;
+
+	neededCapacity_r = G->RedoCount + 1;
+	if (neededCapacity_r > G->RedoCapacity) {
+		newCapacity_r = G->RedoCapacity ? G->RedoCapacity : 64;
+		while (newCapacity_r < neededCapacity_r) newCapacity_r *= 2;
+
+		newStack_r = (PN **) realloc(G->RedoStack, newCapacity_r * sizeof(PN *));
+		if (newStack_r) {
+			G->RedoStack = newStack_r;
+			G->RedoCapacity = newCapacity_r;
+		}
+	}
 
 	G->RedoStack[G->RedoCount++] = pn_retain(rootNode);
-}
 
-static ABI INLINE PN *popr(void) {
-	if (G->RedoCount == 0) return 0;
-
-	return G->RedoStack[--G->RedoCount];
-}
-
-static ABI void clrr(void) {
-	static size_t i;
-
-	for (i = 0; i < G->RedoCount; i++) pn_release(G->RedoStack[i]);
-
-	G->RedoCount = 0;
+	return;
 }
 
 static ABI void undo_begin_edit(void) {
 	if (!G->Undo) {
 		pushu(G->Root);
-		clrr();
+		{
+			static size_t i_clrr;
+			for (i_clrr = 0; i_clrr < G->RedoCount; i_clrr++) pn_release(G->RedoStack[i_clrr]);
+			G->RedoCount = 0;
+		}
 
 		G->Undo = true;
 	}
+
+	return;
 }
 
 static ABI void fixcur(void) {
@@ -1408,6 +1369,8 @@ static ABI void fixcur(void) {
 
 	clamp_column();
 	adjscr();
+
+	return;
 }
 
 static ABI void undo(void) {
@@ -1421,7 +1384,7 @@ static ABI void undo(void) {
 
 	pushr(G->Root);
 
-	previousRootNode = popu();
+	previousRootNode = (G->UndoCount == 0 ? 0 : G->UndoStack[--G->UndoCount]);
 	pn_release(G->Root);
 
 	G->Root = previousRootNode;
@@ -1430,6 +1393,8 @@ static ABI void undo(void) {
 	fixcur();
 	mark_dirty(DIRTY_FULL, 0);
 	status((const unsigned byte *) "Undo.");
+
+	return;
 }
 
 static ABI void redo(void) {
@@ -1443,7 +1408,7 @@ static ABI void redo(void) {
 
 	pushu(G->Root);
 
-	nextRootNode = popr();
+	nextRootNode = (G->RedoCount == 0 ? 0 : G->RedoStack[--G->RedoCount]);
 	pn_release(G->Root);
 
 	G->Root = nextRootNode;
@@ -1452,6 +1417,8 @@ static ABI void redo(void) {
 	fixcur();
 	mark_dirty(DIRTY_FULL, 0);
 	status((const unsigned byte *) "Redo.");
+
+	return;
 }
 
 static ABI size_t linelen(lineNumber)
@@ -1577,6 +1544,8 @@ static ABI void clamp_column(void) {
 	}
 
 	while (G->CursorColumn > 0 && (pt_character_at(startOffset + G->CursorColumn) & 0xC0) == 0x80) G->CursorColumn--;
+
+	return;
 }
 
 static ABI void oflush(void) {
@@ -1585,6 +1554,8 @@ static ABI void oflush(void) {
 	write(1, G->OutputBuffer, G->OutputLength);
 
 	G->OutputLength = 0;
+
+	return;
 }
 
 static ABI void obytes(stringBytes, count)
@@ -1605,6 +1576,8 @@ size_t count;
 		stringBytes += available;
 		count -= available;
 	}
+
+	return;
 }
 
 static ABI void ostr(string)
@@ -1615,6 +1588,8 @@ const unsigned byte *string;
 	stringLength = strlen((const byte *) string);
 
 	obytes(string, stringLength);
+
+	return;
 }
 
 static ABI INLINE void obyte(byteValue)
@@ -1623,6 +1598,8 @@ unsigned dword byteValue;
 	if (G->OutputLength == (1024 * 64)) oflush();
 
 	G->OutputBuffer[G->OutputLength++] = (unsigned byte) byteValue;
+
+	return;
 }
 
 static ABI void seqout(sequence)
@@ -1631,6 +1608,8 @@ const unsigned byte *sequence;
 	obyte(0x1B);
 	obyte('[');
 	ostr(sequence);
+
+	return;
 }
 
 static ABI void setcur(row, column)
@@ -1649,6 +1628,8 @@ unsigned dword row, column;
 	obyte(';');
 	ostr(columnString);
 	obyte('H');
+
+	return;
 }
 
 static ABI void status(message)
@@ -1664,9 +1645,11 @@ const unsigned byte *message;
 	memcpy(G->StatusBuffer, message, messageLength);
 
 	G->StatusLength = messageLength;
+
+	return;
 }
 
-static ABI void save(void) {
+static ABI unsigned byte save(void) {
 	static signed dword fd;
 	static ssize_t readWriteResult;
 	static unsigned byte numberBuffer[22];
@@ -1686,14 +1669,14 @@ static ABI void save(void) {
 	if (!G->Filename[0]) {
 		status((const unsigned byte *) "No filename.");
 
-		return;
+		return false;
 	}
 
 	fd = open((const byte *) G->Filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	if (fd < 0) {
 		status((const unsigned byte *) "Failed to write file.");
 
-		return;
+		return false;
 	}
 
 	totalLength = (G->Root ? G->Root->SubtreeLength : 0);
@@ -1748,6 +1731,8 @@ static ABI void save(void) {
 
 	memcpy(G->StatusBuffer + G->StatusLength, bytesUnitString, 1);
 	G->StatusLength += 1;
+
+	return true;
 }
 
 static ABI void mark_dirty(kind, line)
@@ -1771,6 +1756,8 @@ size_t line;
 
 	G->DirtyKind = DIRTY_FROM;
 	if (line < G->DirtyLine) G->DirtyLine = line;
+
+	return;
 }
 
 static ABI size_t visual_row_of(line)
@@ -1988,6 +1975,8 @@ static ABI void render(void) {
 	seqout((const unsigned byte *) "?25h");
 
 	oflush();
+
+	return;
 }
 
 static ABI INLINE size_t offsetcur(void) {
@@ -2022,6 +2011,8 @@ size_t line;
 	}
 
 	mark_dirty(structural ? DIRTY_FROM : DIRTY_LINE, line);
+
+	return;
 }
 
 static ABI void delbuf(offset, line)
@@ -2047,6 +2038,8 @@ size_t offset, line;
 	}
 
 	mark_dirty(structural ? DIRTY_FROM : DIRTY_LINE, line);
+
+	return;
 }
 
 static ABI void delete_char_at_cursor(void) {
@@ -2066,6 +2059,8 @@ static ABI void delete_char_at_cursor(void) {
 	}
 
 	G->Undo = false;
+
+	return;
 }
 
 static ABI void adjscr(void) {
@@ -2089,6 +2084,8 @@ static ABI void adjscr(void) {
 
 		G->TopLineIndex++;
 	}
+
+	return;
 }
 
 static ABI void movcur(direction)
@@ -2164,4 +2161,6 @@ signed dword direction;
 
 		default: break;
 	}
+
+	return;
 }
