@@ -104,6 +104,7 @@ struct sigaction {
 struct sigaction {
     union {
         void (*sa_handler) (__INT32_TYPE__);
+
         void (*sa_sigaction) (__INT32_TYPE__, struct __siginfo *, void *);
     } __sigaction_u;
 
@@ -114,8 +115,12 @@ struct sigaction {
 #elif defined(__CYGWIN__) || defined(__MSYS__)
 struct sigaction {
     void (*sa_handler) (__INT32_TYPE__);
+
     sigset_t sa_mask;
+
     __INT32_TYPE__ sa_flags;
+
+    __UINT8_TYPE__ sa_reserved_pad[4];
 };
 
 #endif
