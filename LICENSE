@@ -1,0 +1,173 @@
+# **Nae's Public License v1 (NPLv1)**
+
+**Copyright © 2026 defnae**
+All rights reserved.
+
+---
+
+## Preamble
+
+The Nae's Public License is a restrictive copyleft license, it is **NOT** an OSI compliant license and doesn't intend to be. It is designed to guarantee absolute user autonomy (within the conditions of the license). Unlike traditional licenses that serve to gatekeep or monetize intellectual property, the NPL is engineered to mandate the perpetual availability of the Software and its Source Code.
+
+The fundamental intent of this License is to ensure that you and all subsequent users possess the irrevocable freedom to share, study, and modify the Software. To maintain the integrity of this freedom, the NPL strictly prohibits practices deemed unethical or restrictive to the user experience.
+
+To protect these rights, the following mandates are absolute:
+
+    Zero-Cost Access: Access to the Software, in both Source and Binary forms, must be granted without charge. Paywalls, registration requirements, or the exchange of personal data as a condition of access are strictly forbidden.
+
+    Advertising Prohibition: Advertising Prohibition: The Software itself, including the operating system and any components distributed as part of it, must not include, implement, or intentionally facilitate the display of advertising. This restriction applies solely to the Software and any Derivative Work. The display, transmission, or rendering of Third-Party Content that contains advertising, including but not limited to web pages or external services accessed through the Software, does not constitute a violation of this License, provided that such advertising is not introduced, modified, or selectively prioritized by the Software. The Software shall not include functionality specifically designed to enable, enhance, or optimize the delivery of advertising.
+    
+    Source Transparency: If you distribute or provide the Software as a service, you are obligated to provide the Complete Corresponding Source Code. You must pass on the same total freedoms you received.
+
+    Privacy by Default: Tracking, profiling, and non-essential data collection are prohibited to ensure the Software serves the user, rather than monitoring them.
+
+To protect both authors and users, the NPL provides the Software "as is," without warranty. It requires that all modifications be clearly marked to ensure the reputation of original authors is preserved and that technical issues in derivative works are accurately attributed.
+
+By using, modifying, or distributing this Software, you enter into a binding agreement to uphold these standards. If you cannot respect the freedom of others, you are not permitted to use the Software.
+
+---
+
+## **1. Definitions**
+
+This License refers to version 1 of The Nae's Public License.
+
+Copyleft means the condition under which the use, modification, or distribution of the Software is permitted only if any resulting work is licensed in its entirety under this License.
+
+Software means the source code, compiled binaries, documentation, assets, and all associated materials provided under this License.
+
+Source Code means the preferred form of the Software for making modifications, including all files necessary to build, install, run, and modify the Software.
+
+Complete Corresponding Source Code means all source code, build scripts, configuration files, and environmental requirements necessary to reproduce the exact functionality of the Software. This includes any modified libraries, dependencies, or wrapper components not readily accessible to the general public. Only unmodified system libraries that are publicly accessible without cost, registration, or restriction may be excluded.
+
+Derivative Work means any work that copies from or adapts all or part of the Software in a manner requiring permission under applicable copyright law, other than the making of an exact copy.
+
+Distribution means making the Software or a Derivative Work available to any third party.
+
+Service Use means providing the functionality of the Software or a Derivative Work to users over a network, including but not limited to software-as-a-service (SaaS), APIs, or hosted environments.
+
+Commercial Activity means any activity intended for monetary gain, including but not limited to sales, subscriptions, or advertising-supported services.
+
+**Third-Party Content** means any data, content, or material that is not part of the Software or a Derivative Work, including but not limited to data retrieved from external systems, user-provided input, or network resources.
+
+The mere retrieval, transmission, processing, or rendering of Third-Party Content by the Software does not cause such content to become part of the Software or a Derivative Work.
+
+---
+
+## **2. Ownership**
+
+The Software is owned by the original author(s). This License grants a revocable and conditional right to use the Software and does not transfer title or ownership.
+
+---
+
+## **3. Grant of Rights**
+
+Permission is hereby granted, free of charge, to any person to use, copy, modify, and distribute the Software, subject to strict compliance with this License.
+
+Access to the Software, including its Source Code, compiled forms, documentation, and associated assets, shall not be conditioned upon payment, account creation, disclosure of personal data, or any other form of consideration.
+
+---
+
+## **4. Copyleft Requirement**
+
+Any Distribution or Service Use of the Software, or any Derivative Work, must be licensed under this License in its entirety.
+
+No additional terms, conditions, or restrictions may be imposed that limit or contradict the rights granted under this License.
+
+---
+
+## **5. Source Availability**
+
+If the Software or any Derivative Work is Distributed or used to provide a Service, the Complete Corresponding Source Code must be made publicly available at no cost.
+
+Such Source Code must correspond exactly to the version of the Software being Distributed or used.
+
+The Source Code must be accessible through a direct and persistent means that is publicly visible and does not require payment, registration, authorization, or any other restriction.
+
+---
+
+## **6. No Paywall or Access Restriction**
+
+The Software, in both Source Code and compiled form, must be freely obtainable without payment or any required exchange of value.
+
+Charging for hosting infrastructure, operational services, or human support is permitted, provided that access to the Software itself remains unrestricted and free of charge.
+
+---
+
+## **7. Advertising Prohibition**
+
+The Software and any Derivative Work must not include, implement, or intentionally facilitate the display of advertising.
+
+For the purposes of this License, advertising includes any content, message, or material intended to promote products, services, or brands.
+
+Functionality whose primary purpose is to retrieve, inject, prioritize, or render advertising content shall be considered part of the Software.
+
+The Software shall not be considered in violation of this section solely for displaying or transmitting Third-Party Content that contains advertising, provided that:
+
+a. The advertising content is not introduced, modified, or selectively prioritized by the Software; and
+b. The Software does not include functionality specifically designed to enable, enhance, or optimize the delivery of such advertising.
+
+Any intentional integration of advertising systems, including but not limited to ad networks, tracking-based ad delivery, or sponsored content injection, constitutes a violation of this License.
+
+For the avoidance of doubt, Third-Party Content displayed or transmitted without modification or selective prioritization shall not be considered part of the Software.
+
+---
+
+## **8. Privacy and Data Collection**
+
+The Software shall not include any mechanism for tracking, profiling, or collecting user data except as expressly permitted below:
+
+a. Minimal telemetry may be collected solely for aggregate usage measurement. Such telemetry must not identify, track, or profile individual users or devices across sessions, and must not include persistent identifiers or correlation mechanisms.
+
+b. Crash reporting is permitted only with explicit, per-incident user consent and must be limited strictly to information necessary for technical error diagnosis.
+
+Any data collection beyond the foregoing constitutes a material breach of this License.
+
+---
+
+## **9. Attribution and Integrity**
+
+All copies of the Software and any Derivative Work must retain all original copyright notices and attribution.
+
+Modified versions must include a clear and prominent notice stating that changes have been made, along with an accurate timestamp of modification.
+
+No person may misrepresent the origin of the Software or claim authorship of portions not created by them.
+
+---
+
+## **10. Internal Use**
+
+Use of the Software within a private organization does not trigger the obligations of Sections 4, 5, and 6, provided that the functionality of the Software is not made available to any third party or external network.
+
+---
+
+## **11. No Evasion**
+
+You may not structure, modify, distribute, or deploy the Software in a manner that has the intent or effect of circumventing this License.
+
+This includes, but is not limited to, the use of microservices, plugins, wrappers, or similar mechanisms to isolate or obscure functionality.
+
+If the Software is Distributed as part of a device, all necessary scripts, installation methods, and authorization keys required to install and run modified versions must be provided.
+
+Any attempt to impose practical restrictions while maintaining nominal compliance constitutes a violation.
+
+---
+
+## **12. Termination**
+
+Any violation of this License results in the automatic and immediate termination of all rights granted herein.
+
+---
+
+## **13. Cure Period**
+
+Rights under this License may be reinstated only if the violation is fully remedied within seven (7) business days of becoming aware of the violation or receiving notice.
+
+Failure to remedy within this period results in permanent termination.
+
+---
+
+## **14. Disclaimer**
+
+THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
+
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.
