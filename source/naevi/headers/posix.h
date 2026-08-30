@@ -43,7 +43,7 @@ siginterrupt(__INT32_TYPE__, __INT32_TYPE__);
 
 typedef __INT64_TYPE__ off_t;
 
-#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__) || defined(__i386__) || defined(__arm__))
+#if defined(__linux__)
 #define O_CREAT 0x0040
 #define O_TRUNC 0x0200
 #elif defined(__APPLE__) || defined(__CYGWIN__) || defined(__MSYS__)
@@ -51,11 +51,9 @@ typedef __INT64_TYPE__ off_t;
 #define O_TRUNC 0x0400
 #endif
 
-#if defined(__linux__) && defined(__x86_64__) && defined(NAEVI_LIBC_GLIBC)
+#if defined(__linux__)
 #define STAT_BUFFER_SIZE 144
 #define STAT_SIZE_OFFSET 48
-#elif defined(__linux__) && defined(__x86_64__) && defined(NAEVI_LIBC_MUSL)
-#elif defined(__linux__) && !defined(NAEVI_LIBC_GLIBC) && !defined(NAEVI_LIBC_MUSL)
 #elif defined(__APPLE__)
 #define STAT_BUFFER_SIZE 144
 #define STAT_SIZE_OFFSET 96
@@ -68,7 +66,7 @@ typedef __UINT32_TYPE__ tcflag_t;
 typedef __UINT8_TYPE__ cc_t;
 typedef __UINT32_TYPE__ speed_t;
 
-#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__) || defined(__i386__) || defined(__arm__))
+#if defined(__linux__)
 #define NCCS 32
 
 struct termios {

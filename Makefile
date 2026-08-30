@@ -1,6 +1,6 @@
 # Makefile
 
-NAME ?= naevi
+NAME := naevi
 
 ROOT ?= $(dir $(lastword $(MAKEFILE_LIST)))
 
