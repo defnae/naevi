@@ -40,6 +40,7 @@
 #endif
 
 #define INLINE __attribute__((always_inline)) __inline__
+#define NORETURN __attribute__((noreturn))
 
 typedef struct {
 	PN *Root;
@@ -54,7 +55,7 @@ typedef struct {
 	ws_row ScreenRows;
 	ws_col ScreenColumns;
 
-	termios Termios;
+	struct termios Termios;
 	unsigned byte Character, CurrentMode, Dirty, DirtyKind, Force, Lead, Pushback, Running, Undo;
 
 	unsigned byte CommandLineBuffer[4096], Filename[4096], StatusBuffer[4096];
@@ -72,10 +73,17 @@ void *malloc(size_t);
 void *realloc(void *, size_t);
 void free(void *);
 
+raise(signed dword);
+system(const byte *);
+
+void exit(signed dword);
+
 static ABI unsigned char ready(signed int);
 static ABI unsigned char *ull2s(unsigned qword, unsigned byte *);
 
-static void on_winch(signed dword);
+static ABI void on_winch(signed dword);
+static ABI NORETURN void on_sigterm(signed dword);
+static ABI void on_sigint(signed dword);
 
 static ABI INLINE unsigned int rng_next(void);
 
@@ -139,9 +147,11 @@ main(argc, argv, envp)
 int argc;
 char *argv[], *envp[];
 {
+	static struct sigaction sa;
+	static struct termios settings;
+	static struct winsize windowSize;
+
 	static off_t fileSize;
-	static termios settings;
-	static winsize windowSize;
 	static tcflag_t terminalMask;
 	static ssize_t readBytesCount;
 	static signed dword fd, inputByte;
@@ -166,8 +176,14 @@ char *argv[], *envp[];
 			G->ScreenColumns = windowSize.ws_col;
 	}
 
-	signal(SIGWINCH, on_winch);
-	siginterrupt(SIGWINCH, true);
+	sa.sa_handler = on_winch;
+	sigemptyset(&sa.sa_mask);
+
+	sa.sa_flags = 0;
+	sigaction(SIGWINCH, &sa, (struct sigaction *) NULL);
+
+	signal(SIGTERM, on_sigterm);
+	signal(SIGINT, on_sigint);
 
 	if (argc < 2) G->Root = 0;
 	else {
@@ -185,7 +201,7 @@ char *argv[], *envp[];
 		fd = open(argv[1], O_RDONLY, 0);
 		if (fd < 0) G->Root = 0;
 		else {
-			if (fstat(fd, (stat *) statBuffer) != 0) fileSize = -1;
+			if (fstat(fd, (struct stat *) statBuffer) != 0) fileSize = -1;
 			else memcpy(&fileSize, (statBuffer + STAT_SIZE_OFFSET), sizeof(fileSize));
 
 			if (fileSize > 0) {
@@ -197,7 +213,7 @@ char *argv[], *envp[];
 
 					if (G->Newlines) free(G->Newlines);
 
-					return 255;
+					exit(137);
 				}
 
 				while (totalBytesRead < (size_t) fileSize) {
@@ -280,6 +296,13 @@ char *argv[], *envp[];
 			}
 
 			inputByte = rawInputByte;
+		}
+
+		if (inputByte == 0x03) {
+			raise(SIGINT);
+
+			render();
+			continue;
 		}
 
 		if (inputByte == 0x1B && ready(20)) {
@@ -782,7 +805,57 @@ char *argv[], *envp[];
 								} break;
 							}
 
-							default: status((const unsigned byte *) "Unknown command."); break;
+							case '!': {
+								tcsetattr(0, TCSANOW, &G->Termios);
+
+								seqout((const unsigned byte *) "2J");
+								setcur(0, 0);
+								oflush();
+
+								system((const byte *) (commandString + 1));
+
+								ostr((const unsigned byte *) "\r\nPress any key to continue...");
+								oflush();
+
+								read(0, &drainByte, 1);
+
+								tcsetattr(0, TCSANOW, &settings);
+
+								G->DirtyKind = DIRTY_FULL;
+
+								break;
+							}
+
+							default: {
+								if (commandString[0] >= '0' && commandString[0] <= '9') {
+									static size_t targetLine, digitIndex;
+
+									targetLine = 0;
+									digitIndex = 0;
+
+									while (commandString[digitIndex] >= '0' && commandString[digitIndex] <= '9') {
+										targetLine = targetLine * 10 + (size_t) (commandString[digitIndex] - '0');
+										digitIndex++;
+									}
+
+									if (commandString[digitIndex] != '\0') {
+										status((const unsigned byte *) "Unknown command.");
+									} else {
+										if (targetLine > 0) targetLine--;
+
+										if (targetLine >= ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1))
+											targetLine = ((G->Root ? G->Root->SubtreeLineFeeds : 0) + 1) - 1;
+
+										G->CursorRow = targetLine;
+										G->CursorColumn = 0;
+
+										clamp_column();
+										adjscr();
+									}
+								} else status((const unsigned byte *) "Unknown command.");
+
+								break;
+							}
 						}
 
 						G->CurrentMode = NORMAL_MODE;
@@ -824,10 +897,12 @@ char *argv[], *envp[];
 	if (G->Buffer) free(G->Buffer);
 	if (G->Newlines) free(G->Newlines);
 
-	return 0;
+	exit(0);
+
+	/* return 0; */
 }
 
-static void on_winch(signum)
+static ABI void on_winch(signum)
 signed dword signum;
 {
 	(void) signum;
@@ -837,10 +912,80 @@ signed dword signum;
 	return;
 }
 
+static NORETURN ABI void on_sigterm(signum)
+signed dword signum;
+{
+	static signed dword fd;
+	static ssize_t writeResult;
+	static unsigned byte saveFilename[4104];
+	static size_t chunkWrittenBytes, currentPosition, extractedBytes, nameLength, requestedBytes, totalLength;
+
+	(void) signum;
+
+	if (G->Filename[0]) {
+		nameLength = strlen((const byte *) G->Filename);
+		if (nameLength > sizeof(saveFilename) - 6)
+			nameLength = sizeof(saveFilename) - 6;
+
+		memcpy(saveFilename, G->Filename, nameLength);
+		memcpy(saveFilename + nameLength, ".save", 5);
+		nameLength += 5;
+	} else {
+		memcpy(saveFilename, "naevi.save", 10);
+		nameLength = 10;
+	}
+
+	saveFilename[nameLength] = '\0';
+
+	fd = open((const byte *) saveFilename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	if (fd >= 0) {
+		totalLength = (G->Root ? G->Root->SubtreeLength : 0);
+		currentPosition = 0;
+
+		while (currentPosition < totalLength) {
+			requestedBytes = totalLength - currentPosition;
+			chunkWrittenBytes = 0;
+
+			if (requestedBytes > sizeof(G->ScratchSaveBuffer))
+				requestedBytes = sizeof(G->ScratchSaveBuffer);
+
+			extractedBytes = pt_extract(currentPosition, requestedBytes, G->ScratchSaveBuffer, sizeof(G->ScratchSaveBuffer));
+			if (extractedBytes == 0) break;
+
+			while (chunkWrittenBytes < extractedBytes) {
+				writeResult = write(fd, G->ScratchSaveBuffer + chunkWrittenBytes, extractedBytes - chunkWrittenBytes);
+				if (writeResult <= 0) break;
+
+				chunkWrittenBytes += (size_t) writeResult;
+			}
+
+			currentPosition += extractedBytes;
+
+			if (chunkWrittenBytes < extractedBytes) break;
+		}
+
+		close(fd);
+	}
+
+	exit(143);
+
+	/* return; */
+}
+
+static void on_sigint(signum)
+signed dword signum;
+{
+	(void) signum;
+
+	G->CurrentMode = NORMAL_MODE;
+
+	return;
+}
+
 static ABI unsigned byte ready(ms)
 signed dword ms;
 {
-	static pollfd pollDescriptor;
+	static struct pollfd  pollDescriptor;
 
 	pollDescriptor.fd = 0;
 	pollDescriptor.events = POLLIN;
@@ -1094,7 +1239,7 @@ size_t offset;
 	if (!Node) return 0;
 
 	sourceBuffer = (Node->Source == PS_ORIGIN) ? G->Buffer : G->AddBuffer;
-	
+
 	return sourceBuffer[Node->StartOffset + offsetInPiece];
 }
 

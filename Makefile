@@ -19,13 +19,9 @@ DIM := \033[2m
 
 RESET := \033[0m
 
-WFLAGS ?= -Weverything -Wno-gcc-compat -Wno-deprecated-non-prototype -Wno-implicit-int -Wno-comment -Wno-unsafe-buffer-usage -Wno-long-long
-
-LTO := $(shell echo 'int main(void) { return 0; }' | clang -flto -x c - -fuse-ld=lld -o /dev/null 2>/dev/null && echo -flto)
-STATIC := $(shell echo 'int main(void) { return 0; }' | clang -static -x c - -fuse-ld=lld -o /dev/null 2>/dev/null && echo -static)
-
-CFLAGS ?= -I$(SOURCE) -std=iso9899:199409 -funsigned-char $(WFLAGS) $(LTO) -fomit-frame-pointer -O3
-LFLAGS ?= $(STATIC)
+WFLAGS ?= -Weverything -Wno-gcc-compat -Wno-deprecated-non-prototype -Wno-reserved-identifier -Wno-implicit-int -Wno-comment -Wno-unsafe-buffer-usage -Wno-long-long
+CFLAGS ?= -I$(SOURCE) -std=iso9899:199409 -funsigned-char -fomit-frame-pointer -O3
+LFLAGS ?=
 
 .ONESHELL:
 .PHONY: all clean build run compile_commands.json
@@ -55,13 +51,20 @@ build: clean
 	@printf "    $(GREEN)✓$(RESET) Created directories.\n"
 
 	@printf "\n    $(CYAN)→$(RESET) Compiling..\n\n"
-	@set -x; set -x; clang $(CFLAGS) "$(SOURCE)/$(NAME)/main.c" -o "$(BUILD)/$(NAME)/$(NAME)" -ferror-limit=0 --save-temps=obj -fuse-ld=lld -gdwarf-4 $(LFLAGS) || { \
-		code=$$?; \
-		printf "\n$(RED)✘$(RESET) $(BOLD)Compiled Failed. ? $$code$(RESET)\n\n"; \
-		exit $$code; \
+
+	LTO="$$(clang -flto $(CFLAGS) -Wno-Weverything "$(SOURCE)/$(NAME)/main.c" -o /dev/null -ferror-limit=0 -fuse-ld=lld -gdwarf-4 $(LFLAGS) 2>/dev/null >/dev/null && echo -flto)"
+	STATIC="$$(clang -static $(CFLAGS) -Wno-Weverything "$(SOURCE)/$(NAME)/main.c" -o /dev/null -ferror-limit=0 -fuse-ld=lld -gdwarf-4 $(LFLAGS) 2>/dev/null >/dev/null && echo -static)"
+
+	CFLAGS="$(CFLAGS) $(WFLAGS) $$LTO"
+	LFLAGS="$(LFLAGS) $$STATIC"
+
+	set -x; set -x; clang $$CFLAGS "$(SOURCE)/$(NAME)/main.c" -o "$(BUILD)/$(NAME)/$(NAME)" -ferror-limit=0 --save-temps=obj -fuse-ld=lld -gdwarf-4 $$LFLAGS || { \
+	    code=$$?; \
+	    printf "\n$(RED)✘$(RESET) $(BOLD)Compilation Failed. ? $$code$(RESET)\n\n"; \
+	    exit $$code; \
 	}
 
-	@set +x;
+	set +x
 
 	@printf "\n    $(GREEN)✓$(RESET) Compiled.\n"
 
@@ -69,9 +72,9 @@ build: clean
 	@mv "$(BUILD)/$(NAME)/$(NAME)-debug.exe" "$(BUILD)/$(NAME)/$(NAME)-debug" 2>/dev/null || true
 
 	@llvm-strip --strip-all "$(BUILD)/$(NAME)/$(NAME)" || { \
-		code=$$?; \
-		printf "\n$(RED)✘$(RESET) $(BOLD)Stripping Failed. ? $$code$(RESET)\n\n"; \
-		exit $$code; \
+	    code=$$?; \
+	    printf "\n$(RED)✘$(RESET) $(BOLD)Stripping Failed. ? $$code$(RESET)\n\n"; \
+	    exit $$code; \
 	}
 
 	@printf "\n    $(GREEN)✓$(RESET) Stripped.\n"
@@ -84,14 +87,14 @@ run: all
 	@printf "\n$(BOLD)Launching..$(RESET)\n"
 	@printf "    $(CYAN)→$(RESET) Running..\n\n"
 
-	@file=$$(mktemp); \
+	file=$$(mktemp); \
 	(set -x; set -x; "$(BUILD)/built/$(NAME)"; code=$$?; set +x; printf '%s\n' "$$code" > "$$file") 2>&1 | tee "$(LOG)"; \
 	code=$$(cat "$$file"); \
 	rm -f "$$file"; \
 	if [ "$$code" -ne 0 ]; then \
-		printf "\n    $(GREEN)✓$(RESET) Exited. $$code.\n"; \
+	    printf "\n    $(GREEN)✓$(RESET) Exited. $$code.\n"; \
 	else \
-		printf "\n    $(GREEN)✓$(RESET) Exited.\n"; \
+	    printf "\n    $(GREEN)✓$(RESET) Exited.\n"; \
 	fi
 
 	@printf "\n$(GREEN)$(BOLD)Exited.$(RESET) Debug log: $(DIM)$(LOG)$(RESET)\n"
