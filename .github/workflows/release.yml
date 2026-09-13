@@ -1,0 +1,126 @@
+# .github/workflows/release.yml
+
+name: release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rolling-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          - os: ubuntu-latest
+            name: linux
+          - os: macos-latest
+            name: macos
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: msys2 Toolchain
+        if: matrix.name == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          update: true
+          install: >-
+            make
+            clang
+            lld
+            llvm
+
+      - name: linux toolchain
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make clang lld llvm
+
+      - name: macOS toolchain
+        if: matrix.name == 'macos'
+        run: |
+          brew install make lld llvm
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+
+      - name: build
+        if: matrix.name != 'windows'
+        shell: bash
+        run: make
+
+      - name: build windows
+        if: matrix.name == 'windows'
+        shell: msys2 {0}
+        run: make
+
+      - name: package windows
+        if: matrix.name == 'windows'
+        shell: msys2 {0}
+        run: |
+          mkdir -p artifacts
+          cp ./build/built/naevi artifacts/naevi-windows.exe
+          cp ./build/naevi/naevi-debug artifacts/naevi-debug-windows.exe
+
+      - name: package linux
+        if: matrix.name == 'linux'
+        run: |
+          mkdir -p artifacts
+          cp ./build/built/naevi artifacts/naevi-linux
+          cp ./build/naevi/naevi-debug artifacts/naevi-debug-linux
+
+      - name: package macOS
+        if: matrix.name == 'macos'
+        run: |
+          mkdir -p artifacts
+          cp ./build/built/naevi artifacts/naevi-macos
+          cp ./build/naevi/naevi-debug artifacts/naevi-debug-macos
+
+      - name: upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: artifacts/
+
+  release:
+    name: release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: update latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+          gh release create latest \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Latest Build" \
+            --notes "Rolling release built from commit $GITHUB_SHA" \
+            --prerelease \
+            --target "$GITHUB_SHA"
+
+          gh release upload latest release-artifacts/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
