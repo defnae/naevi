@@ -1,7 +1,13 @@
-./build/
+# .gitignore
 
-./compile_commands.json
+build
+compile_commands.json
 
+debug.log
+
+naevi.save
+
+.cache
 .Trash
 
 .DS_Store

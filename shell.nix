@@ -11,5 +11,5 @@ pkgs.mkShell {
     gnumake
   ];
 
-  buildInputs = with pkgs; [ musl ];
+  buildInputs = with pkgs; [ ];
 }
