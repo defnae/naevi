@@ -160,6 +160,7 @@ static ABI unsigned byte do_search(unsigned byte *, size_t, signed dword);
 static ABI unsigned byte bytes_equal(unsigned byte *, unsigned byte *, size_t, signed dword);
 static ABI unsigned byte is_word_byte(signed dword);
 static ABI void offset_to_cursor(size_t, size_t *, size_t *);
+static ABI unsigned byte offset_in_match(size_t);
 static ABI void free_match_set(void);
 static ABI size_t find_all_matches(unsigned byte *, size_t);
 static ABI void goto_match(size_t);
@@ -176,8 +177,8 @@ char *argv[], *envp[];
 	static struct termios settings;
 	static struct winsize window_size;
 
-	static off_t file_size;
-	static unsigned byte drain_char, key_code, next_char, raw_input, tilde_char;
+	auto off_t file_size;
+	auto unsigned byte drain_char, key_code, next_char, raw_input, tilde_char;
 
 	static unsigned byte stat_buffer[STAT_BUFFER_SIZE];
 
@@ -651,7 +652,7 @@ char *argv[], *envp[];
 								break;
 							}
 
-							case 0x0B: {
+							case 0x08: {
 								G->CurrentMode = REPLACE_MODE;
 								G->ReplaceStage = 0;
 								G->ReplaceFindLength = 0;
@@ -1565,7 +1566,7 @@ size_t *piece_start, *piece_offset;
 static ABI unsigned byte pt_character_at(offset)
 size_t offset;
 {
-	static size_t piece_offset, piece_start;
+	auto size_t piece_offset, piece_start;
 
 	noaof PN *Node;
 	noaof unsigned byte *src;
@@ -1584,7 +1585,7 @@ size_t offset, len;
 unsigned byte *dst;
 size_t dst_cap;
 {
-    static size_t piece_offset, piece_start;
+    auto size_t piece_offset, piece_start;
 
 	noaof size_t available, written, room, requested, total_length;
 
@@ -1915,7 +1916,7 @@ static ABI void redo(void)
 static ABI size_t line_length(line)
 size_t line;
 {
-	static size_t length;
+	auto size_t length;
 
 	pt_line_bounds(line, (size_t *) NULL, &length);
 
@@ -1926,7 +1927,7 @@ static ABI size_t line_layout(line, stop_offset, out_row, out_col)
 size_t line, stop_offset;
 size_t *out_row, *out_col;
 {
-    static size_t line_len, start_offset;
+    auto size_t line_len, start_offset;
 
 	noaof unsigned byte has_stopped, c;
 	noaof size_t char_offset, row_idx, scratch_len, tab_width, term_cols, vis_col;
@@ -2167,6 +2168,23 @@ size_t *out_column;
 	return;
 }
 
+static ABI unsigned byte offset_in_match(offset)
+size_t offset;
+{
+	noaof size_t i, match_offset;
+
+	if (!G->MatchActive || G->MatchCount == 0 || G->MatchLength == 0) return false;
+
+	for (i = 0; i < G->MatchCount; i++) {
+		match_offset = (size_t) ((signed dword) G->MatchOffsets[i] + G->MatchOffsetDelta);
+
+		if (offset >= match_offset && offset < match_offset + G->MatchLength)
+			return true;
+	}
+
+	return false;
+}
+
 static ABI void free_match_set(void)
 {
 	if (G->MatchOffsets) free(G->MatchOffsets);
@@ -2178,6 +2196,8 @@ static ABI void free_match_set(void)
 	G->MatchActive = false;
 	G->MatchEscArmed = false;
 	G->MatchOffsetDelta = 0;
+
+	mark_dirty(DIRTY_FULL, 0);
 
 	return;
 }
@@ -2242,7 +2262,7 @@ size_t pattern_len;
 static ABI void goto_match(index)
 size_t index;
 {
-	static size_t row, column;
+	auto size_t row, column;
 	noaof size_t adjusted_offset;
 
 	if (!G->MatchActive || G->MatchCount == 0) return;
@@ -2320,7 +2340,7 @@ signed dword direction;
 static ABI void replace_current_match(void)
 {
 	noaof size_t match_offset, index;
-	static size_t replaced_so_far, original_total;
+	auto size_t replaced_so_far, original_total;
 
 	if (!G->MatchActive || G->MatchCount == 0) return;
 	if (G->MatchIndex >= G->MatchCount) return;
@@ -2663,9 +2683,9 @@ size_t line_idx;
 unsigned dword screen_row, screen_rows;
 size_t term_cols;
 {
-	noaof unsigned byte c;
+	noaof unsigned byte c, highlighted;
 	noaof size_t char_offset, scratch_len, tab_width, vis_col, i;
-	static size_t start_offset, line_len;
+	auto size_t start_offset, line_len;
 
 	start_offset = 0;
 	line_len = 0;
@@ -2680,6 +2700,7 @@ size_t term_cols;
 
 	char_offset = 0;
 	vis_col = 0;
+	highlighted = false;
 
 	set_cursor(screen_row, 0);
 	seq_out("2K");
@@ -2704,6 +2725,11 @@ size_t term_cols;
 				continue;
 			}
 
+			if (offset_in_match(start_offset + char_offset) != highlighted) {
+				highlighted = !highlighted;
+				seq_out(highlighted ? "100m" : "m");
+			}
+
 			for (i = 0; i < tab_width; i++) out_byte(' ');
 
 			vis_col += tab_width;
@@ -2726,6 +2752,11 @@ size_t term_cols;
 				continue;
 			}
 
+			if (offset_in_match(start_offset + char_offset) != highlighted) {
+				highlighted = !highlighted;
+				seq_out(highlighted ? "100m" : "m");
+			}
+
 			out_byte(c);
 			vis_col++;
 			char_offset++;
@@ -2738,12 +2769,14 @@ size_t term_cols;
 		}
 	}
 
+	if (highlighted) seq_out("m");
+
 	return (ws_row) (screen_row + 1);
 }
 
 static ABI void render(void)
 {
-    static size_t col_in_line, row_in_line;
+    auto size_t col_in_line, row_in_line;
     static unsigned byte col_buf[22], row_buf[22];
 
 	noaof ws_row cur_row, screen_rows;
@@ -2807,8 +2840,25 @@ static ABI void render(void)
 		}
 
 		case SEARCH_MODE: {
-			out_byte('/');
+			seq_out("7m");
+			out_str(" FIND ");
+			seq_out("m");
+			out_byte(' ');
+
 			out_bytes(G->SearchBuffer, G->SearchLength);
+
+			out_byte(' ');
+			out_byte(' ');
+
+			if (G->MatchCaseSensitive) seq_out("7m");
+			out_str("[Aa]");
+			if (G->MatchCaseSensitive) seq_out("m");
+
+			out_byte(' ');
+
+			if (G->MatchWholeWord) seq_out("7m");
+			out_str("[W]");
+			if (G->MatchWholeWord) seq_out("m");
 
 			break;
 		}
@@ -2826,6 +2876,7 @@ static ABI void render(void)
 				out_bytes(G->ReplaceWithBuffer, G->ReplaceWithLength);
 			}
 
+			out_byte(' ');
 			out_byte(' ');
 
 			if (G->MatchCaseSensitive) seq_out("7m");
@@ -2892,7 +2943,7 @@ static ABI void render(void)
 		}
 
 		case SEARCH_MODE: {
-			set_cursor(G->ScreenRows - 1, (ws_col) (1 + G->SearchLength));
+			set_cursor(G->ScreenRows - 1, (ws_col) (7 + G->SearchLength));
 
 			break;
 		}
@@ -3019,7 +3070,7 @@ static ABI void adjust_scroll(void)
 {
 	noaof ws_row screen_rows;
 	noaof size_t line_idx, vis_rows;
-	static size_t row_in_line;
+	auto size_t row_in_line;
 
 	screen_rows = G->ScreenRows - 1;
 
