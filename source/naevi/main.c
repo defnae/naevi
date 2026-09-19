@@ -941,24 +941,35 @@ char *argv[], *envp[];
 							}
 
 							case '!': {
-								tcsetattr(0, TCSANOW, &G->Termios);
+								switch (cmd_string[1]) {
+									case '\0': status("Unknown command."); break;
 
-								seq_out("2J");
-								set_cursor(0, 0);
-								out_flush();
+									default: {
+										tcsetattr(0, TCSANOW, &G->Termios);
 
-								system((byte *) (cmd_string + 1));
+										seq_out("2J");
+										set_cursor(0, 0);
+										out_flush();
 
-								out_str("\r\nPress any key to continue...");
-								out_flush();
+										system((byte *) (cmd_string + 1));
 
-								read(0, &drain_char, 1);
+										tcsetattr(0, TCSANOW, &settings);
 
-								tcsetattr(0, TCSANOW, &settings);
+										seq_out("?25l");
+										out_flush();
 
-								G->DirtyKind = DIRTY_FULL;
+										do {
+											read_count = read(0, &drain_char, 1);
+										} while (read_count > 0 && drain_char != '\r' && drain_char != '\n');
 
-								break;
+										seq_out("?25h");
+										out_flush();
+
+										G->DirtyKind = DIRTY_FULL;
+
+										break;
+									}
+								} break;
 							}
 
 							case 'N': {

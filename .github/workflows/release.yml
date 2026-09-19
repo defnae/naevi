@@ -10,117 +10,142 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: rolling-release
-  cancel-in-progress: false
-
 jobs:
-  build:
-    name: build (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
+  reset:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: sh
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
+      - name: delete existing tags and releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+
+          for id in $(gh release list --limit 1000 --json tagName --jq '.[].tagName'); do
+            gh release delete "$id" --yes --cleanup-tag || true
+          done
+
+          for t in $(git tag -l); do
+            git push origin ":refs/tags/$t" || true
+            git tag -d "$t" || true
+          done
+
+      - name: create tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          git tag latest
+          git push origin latest
+          gh release create latest --title "latest" --target "${{ github.sha }}"
+
+  build:
+    needs: reset
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             name: windows
+            suffix: windows
           - os: ubuntu-latest
             name: linux
+            suffix: linux
           - os: macos-latest
             name: macos
-
+            suffix: macos
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: msys2 {0}
     steps:
-      - name: checkout
-        uses: actions/checkout@v4
-
-      - name: msys2 Toolchain
+      - name: msys2 deps
         if: matrix.name == 'windows'
         uses: msys2/setup-msys2@v2
         with:
           msystem: MSYS
           update: true
+          path-type: inherit
           install: >-
             make
             clang
             lld
             llvm
 
-      - name: linux toolchain
+      - name: linux deps
         if: matrix.name == 'linux'
+        shell: sh
         run: |
           sudo apt-get update
           sudo apt-get install -y make clang lld llvm
 
-      - name: macOS toolchain
+      - name: macOS deps
         if: matrix.name == 'macos'
+        shell: sh
         run: |
           brew install make lld llvm
           echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
-      - name: build
+      - uses: actions/checkout@v5
+
+      - name: build linux/macOS
         if: matrix.name != 'windows'
-        shell: bash
-        run: make
+        shell: sh
+        run: |
+          set -eu
+          make
 
       - name: build windows
         if: matrix.name == 'windows'
         shell: msys2 {0}
-        run: make
+        run: |
+          set -eu
+          make
 
-      - name: package windows
+      - name: stage linux/macOS
+        if: matrix.name != 'windows'
+        shell: sh
+        run: |
+          set -eu
+          cp build/built/naevi naevi-${{ matrix.suffix }}
+          cp build/naevi/naevi-debug naevi-${{ matrix.suffix }}-debug
+
+      - name: stage windows
         if: matrix.name == 'windows'
         shell: msys2 {0}
         run: |
-          mkdir -p artifacts
-          cp ./build/built/naevi artifacts/naevi-windows.exe
-          cp ./build/naevi/naevi-debug artifacts/naevi-debug-windows.exe
+          set -eu
+          cp build/built/naevi naevi-${{ matrix.suffix }}.exe
+          cp build/naevi/naevi-debug naevi-${{ matrix.suffix }}-debug.exe
 
-      - name: package linux
-        if: matrix.name == 'linux'
-        run: |
-          mkdir -p artifacts
-          cp ./build/built/naevi artifacts/naevi-linux
-          cp ./build/naevi/naevi-debug artifacts/naevi-debug-linux
-
-      - name: package macOS
-        if: matrix.name == 'macos'
-        run: |
-          mkdir -p artifacts
-          cp ./build/built/naevi artifacts/naevi-macos
-          cp ./build/naevi/naevi-debug artifacts/naevi-debug-macos
-
-      - name: upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.name }}
-          path: artifacts/
-
-  release:
-    name: release
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-artifacts
-          merge-multiple: true
-
-      - name: update latest release
+      - name: upload linux/macOS
+        if: matrix.name != 'windows'
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: sh
         run: |
-          gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-          gh release create latest \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Latest Build" \
-            --notes "Rolling release built from commit $GITHUB_SHA" \
-            --prerelease \
-            --target "$GITHUB_SHA"
+          set -eu
+          gh release upload latest naevi-${{ matrix.suffix }} naevi-${{ matrix.suffix }}-debug --clobber --repo "${{ github.repository }}"
 
-          gh release upload latest release-artifacts/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
+      - name: upload windows
+        if: matrix.name == 'windows'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: msys2 {0}
+        run: |
+          set -eu
+          gh release upload latest naevi-${{ matrix.suffix }}.exe naevi-${{ matrix.suffix }}-debug.exe --clobber --repo "${{ github.repository }}"
+
+  finish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: finish
+        run: echo "All builds completed successfully."
