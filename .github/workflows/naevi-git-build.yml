@@ -1,0 +1,95 @@
+# .github/workflows/naevi-git-build.yml
+#
+# on every push: builds the naevi-git package from the AUR and publishes it
+# to the forgejo arch package registry under the owner/group below.
+#
+# needs:
+#   - a repo secret FORGEJO_TOKEN: an access token (or password) for the
+#     account named in FORGEJO_AUTH_USER, with permission to write packages
+#     for FORGEJO_OWNER
+#
+# assumptions i made (change them in the env block if they're wrong):
+#   - the forgejo owner is "defnae" (that's the username in your repo urls,
+#     git.tarxz.zip/defnae/...; "naenae" is the display name)
+#   - "tag naevi" means the registry *group*: forgejo's arch registry has
+#     no tags, and the group (the last part of
+#     /api/packages/{owner}/arch/{group}) is the closest thing to a
+#     label. pacman then uses [defnae.naevi.git.tarxz.zip]
+#
+# untested: i couldn't run this against a real runner or forgejo instance.
+
+name: Build naevi-git and publish
+
+on:
+  push: {} # every push, any branch
+  workflow_dispatch: {}
+
+# a newer push cancels an older build still in progress
+concurrency:
+  group: naevi-git-build
+  cancel-in-progress: true
+
+env:
+  FORGEJO_URL: https://git.tarxz.zip
+  FORGEJO_OWNER: defnae # whose package registry receives the package
+  FORGEJO_AUTH_USER: defnae # the account FORGEJO_TOKEN belongs to
+  FORGEJO_GROUP: naevi # the "group" in /api/packages/{owner}/arch/{group}
+  AUR_PACKAGE: naevi-git
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Install prerequisites
+        run: |
+          pacman -Sy --noconfirm --needed git curl sudo
+
+      - name: Create build user
+        # makepkg refuses to run as root
+        run: |
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+      - name: Build ${{ env.AUR_PACKAGE }}
+        run: |
+          set -euo pipefail
+          workdir="/tmp/build/$AUR_PACKAGE"
+          rm -rf "$workdir"
+          mkdir -p "$workdir"
+          chown builder:builder "$workdir"
+
+          sudo -u builder git clone --depth 1 "https://aur.archlinux.org/$AUR_PACKAGE.git" "$workdir"
+
+          # -git packages pull the newest upstream commit while building
+          # (pkgver() computes the version), so this builds what was just pushed.
+          # build without installing, don't sign (forgejo signs its own copy)
+          sudo -u builder bash -c "cd '$workdir' && makepkg --syncdeps --noconfirm --nosign --skippgpcheck --clean"
+
+      - name: Publish to forgejo
+        run: |
+          set -euo pipefail
+          workdir="/tmp/build/$AUR_PACKAGE"
+
+          for file in "$workdir"/*.pkg.tar.zst; do
+            [ -e "$file" ] || continue
+            echo "publishing $(basename "$file")"
+            status="$(curl -sS -o /tmp/upload-response.txt -w '%{http_code}' -X PUT \
+              "$FORGEJO_URL/api/packages/$FORGEJO_OWNER/arch/$FORGEJO_GROUP" \
+              --user "$FORGEJO_AUTH_USER:$FORGEJO_TOKEN" \
+              --header "Content-Type: application/octet-stream" \
+              --data-binary "@$file")"
+
+            case "$status" in
+              2*) echo "published" ;;
+              409) echo "already published (409), skipping" ;;
+              *)
+                echo "upload failed with http $status:"
+                cat /tmp/upload-response.txt
+                exit 1
+                ;;
+            esac
+          done
+        env:
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}

@@ -1,6 +1,6 @@
 # Makefile
 
-NAME := idk
+NAME := naevi
 
 ROOT ?= $(dir $(lastword $(MAKEFILE_LIST)))
 
@@ -20,7 +20,7 @@ DIM := \033[2m
 RESET := \033[0m
 
 CFLAGS ?= -I$(SOURCE) -std=iso9899:199409 -funsigned-char -fomit-frame-pointer -O3
-CFLAGS += -Weverything -Wno-implicit-int -Wno-deprecated-non-prototype -Wno-comment -Werror
+CFLAGS += -Weverything -Wno-gcc-compat -Wno-implicit-int -Wno-deprecated-non-prototype -Wno-reserved-identifier -Wno-comment -Wno-unsafe-buffer-usage -Wno-long-long -Werror
 
 .ONESHELL:
 .PHONY: all clean build run compile_commands.json
