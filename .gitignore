@@ -1,0 +1,14 @@
+# .gitignore
+
+build
+compile_commands.json
+
+debug.log
+
+.cache
+.Trash
+
+.DS_Store
+
+thumbs.db
+desktop.ini
